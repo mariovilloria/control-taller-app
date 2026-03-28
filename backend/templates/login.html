@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Login | Control Taller</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * {
+            box-sizing: border-box;
+            font-family: Arial, sans-serif;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #0f172a, #1e3a8a);
+            padding: 20px;
+        }
+
+        .login-card {
+            width: 100%;
+            max-width: 420px;
+            background: #ffffff;
+            border-radius: 18px;
+            box-shadow: 0 18px 45px rgba(0, 0, 0, 0.18);
+            padding: 28px;
+        }
+
+        .login-titulo {
+            margin: 0 0 8px;
+            font-size: 28px;
+            color: #111827;
+            text-align: center;
+        }
+
+        .login-subtitulo {
+            margin: 0 0 24px;
+            font-size: 14px;
+            color: #6b7280;
+            text-align: center;
+        }
+
+        .campo {
+            margin-bottom: 16px;
+        }
+
+        .campo label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #374151;
+        }
+
+        .campo input {
+            width: 100%;
+            padding: 12px 14px;
+            border: 1px solid #d1d5db;
+            border-radius: 10px;
+            font-size: 15px;
+            outline: none;
+        }
+
+        .campo input:focus {
+            border-color: #2563eb;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+        }
+
+        .btn-login {
+            width: 100%;
+            border: none;
+            background: #2563eb;
+            color: white;
+            padding: 12px 14px;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: .2s ease;
+        }
+
+        .btn-login:hover {
+            background: #1d4ed8;
+        }
+
+        .mensaje-error {
+            margin-top: 14px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            background: #fef2f2;
+            color: #b91c1c;
+            font-size: 14px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <h1 class="login-titulo">Control Taller</h1>
+        <p class="login-subtitulo">Inicia sesión para continuar</p>
+
+        <form method="POST" action="/login">
+            <div class="campo">
+                <label for="usuario">Usuario</label>
+                <input type="text" id="usuario" name="usuario" placeholder="Ingresa tu usuario" required>
+            </div>
+
+            <div class="campo">
+                <label for="clave">Clave</label>
+                <input type="password" id="clave" name="clave" placeholder="Ingresa tu clave" required>
+            </div>
+
+            <button type="submit" class="btn-login">Ingresar</button>
+        </form>
+
+        {% if error %}
+        <div class="mensaje-error" style="display:block;">
+            {{ error }}
+        </div>
+        {% endif %}
+    </div>
+</body>
+</html>
