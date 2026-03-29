@@ -663,6 +663,8 @@ Descargar mercadería y organizar bodega"
       let estadoTecnicoSeleccionado = null;
       let ultimoResumen = { trabajos: [], tecnicos: [] };
       let mostrarFinalizados = false;
+      let holdTecnicoTimer = null;
+      let holdTecnicoEjecutado = false;
       const tecnicosExpandidos = new Set();
       const tecnicosAsignacionExpandidos = new Set();
       const trabajosColapsados = new Set();
@@ -1550,6 +1552,31 @@ ${
     `;
       }
 
+      function iniciarHoldTecnico(tecnicoId) {
+        if (!TIENE_BATUTA) return;
+
+        cancelarHoldTecnico();
+        holdTecnicoEjecutado = false;
+
+        holdTecnicoTimer = setTimeout(() => {
+          holdTecnicoEjecutado = true;
+          abrirModalEstadoTecnico(tecnicoId);
+        }, 600);
+      }
+
+      function cancelarHoldTecnico() {
+        if (holdTecnicoTimer) {
+          clearTimeout(holdTecnicoTimer);
+          holdTecnicoTimer = null;
+        }
+      }
+
+      function holdTecnicoFueEjecutado() {
+        const ejecutado = holdTecnicoEjecutado;
+        holdTecnicoEjecutado = false;
+        return ejecutado;
+      }
+
       function toggleTecnicoPanel(tecnicoId) {
         if (tecnicosExpandidos.has(tecnicoId)) {
           tecnicosExpandidos.delete(tecnicoId);
@@ -1757,31 +1784,13 @@ ${
         const esEventual = (t.tipo || "fijo") === "eventual";
         const eventualInactivo = esEventual && t.activo === false;
 
-        const htmlAcciones = eventualInactivo
-          ? ``
-          : `
-      <div class="tecnico-acciones" onclick="event.stopPropagation()">
-          ${TIENE_BATUTA ? `<button class="btn-estado libre ${t.estado === "libre" ? "activo" : ""}" onclick="abrirModalEstadoTecnico(${t.id})">Cambiar estado</button>` : ""}
-          ${
-            TIENE_BATUTA && !esEventual
-              ? `
-              <button
-                  class="btn-estado dia-libre ${accionOcupada(`dia-libre-${t.id}`) ? "btn-cargando" : ""}"
-                  ${accionOcupada(`dia-libre-${t.id}`) ? "disabled" : ""}
-                  onclick="toggleDiaLibreTecnico(${t.id}, ${t.dia_libre ? "false" : "true"})"
-              >
-                  ${t.dia_libre ? "Quitar día libre" : "Marcar día libre"}
-              </button>
-          `
-              : ""
-          }
-      </div>
-  `;
+        const htmlAcciones = "";
 
         item.className = `tecnico-item estado-${t.estado} ${expandido ? "expandido" : "colapsado"} ${trabajoActual ? "clickeable" : ""} ${esEventual ? "tecnico-eventual" : ""} ${eventualInactivo ? "tecnico-eventual-inactivo" : ""}`;
 
         item.onclick = () => {
           if (eventualInactivo) return;
+          if (holdTecnicoFueEjecutado()) return;
           toggleTecnicoPanel(t.id);
         };
 
@@ -1805,20 +1814,15 @@ ${
     ${htmlAcciones}
   `;
 
-        if (esEventual) {
-          item.addEventListener("mousedown", () =>
-            iniciarHoldTecnicoEventual(t.id, t.activo !== false),
-          );
-          item.addEventListener("mouseup", cancelarHoldTecnicoEventual);
-          item.addEventListener("mouseleave", cancelarHoldTecnicoEventual);
-          item.addEventListener(
-            "touchstart",
-            () => iniciarHoldTecnicoEventual(t.id, t.activo !== false),
-            { passive: true },
-          );
-          item.addEventListener("touchend", cancelarHoldTecnicoEventual);
-          item.addEventListener("touchcancel", cancelarHoldTecnicoEventual);
-        }
+        item.addEventListener("mousedown", () => iniciarHoldTecnico(t.id));
+        item.addEventListener("mouseup", cancelarHoldTecnico);
+        item.addEventListener("mouseleave", cancelarHoldTecnico);
+
+        item.addEventListener("touchstart", () => iniciarHoldTecnico(t.id), {
+          passive: true,
+        });
+        item.addEventListener("touchend", cancelarHoldTecnico);
+        item.addEventListener("touchcancel", cancelarHoldTecnico);
 
         return item;
       }
