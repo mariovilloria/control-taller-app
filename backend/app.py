@@ -339,7 +339,7 @@ def panel():
         es_admin=session.get("es_admin"),
         puede_gestionar=session.get("puede_gestionar"),
         usuario_id=usuario_id,
-        tiene_batuta=(batuta_usuario_id == usuario_id),
+        tiene_batuta=(batuta_usuario_id == usuario_id) or session.get("es_admin"),
         batuta_usuario_id=batuta_usuario_id,
         batuta_nombre=batuta_nombre,
         usuarios=usuarios,
