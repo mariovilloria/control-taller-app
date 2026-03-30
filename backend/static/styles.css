@@ -1748,3 +1748,9 @@ button:disabled {
   filter: grayscale(0.75);
   cursor: not-allowed;
 }
+.app-version {
+  font-size: 10px;
+  opacity: 0.6;
+  text-align: center;
+  margin-top: 8px;
+}

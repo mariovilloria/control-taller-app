@@ -321,6 +321,18 @@ def panel():
             batuta_nombre = data.get("nombre")
             break
 
+    import subprocess
+
+    def obtener_version():
+        try:
+            return (
+                subprocess.check_output(["git", "rev-parse", "--short", "HEAD"])
+                .decode("utf-8")
+                .strip()
+            )
+        except:
+            return "unknown"
+
     return render_template(
         "index.html",
         usuario_nombre=session.get("usuario_nombre"),
@@ -333,6 +345,7 @@ def panel():
         usuarios=usuarios,
         firebase_config=firebase_settings["web_config"],
         app_env=APP_ENV,
+        version_app=obtener_version(),
     )
 
 
