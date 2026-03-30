@@ -355,3 +355,56 @@ async function toggleActivoTecnicoEventual(tecnicoId, nuevoActivo) {
     alert("No se pudo actualizar el técnico eventual.");
   }
 }
+async function habilitarTecnicoDesdeAcciones(tecnicoId) {
+  if (!validarBatuta()) return;
+
+  const clave = `habilitar-tecnico-${tecnicoId}`;
+  if (!iniciarAccion(clave)) return;
+
+  try {
+    const tecnicoRef = window.db.collection("tecnicos").doc(String(tecnicoId));
+    const tecnicoSnap = await tecnicoRef.get();
+
+    if (!tecnicoSnap.exists) {
+      alert("Técnico no encontrado.");
+      return;
+    }
+
+    await tecnicoRef.update({
+      activo: true,
+    });
+
+    cerrarModalAccionesTecnico();
+    await cargarDatos();
+  } catch (error) {
+    console.error("Error habilitando técnico:", error);
+    alert("No se pudo habilitar el técnico.");
+  } finally {
+    finalizarAccion(clave);
+  }
+}
+
+async function deshabilitarTecnicoDesdeAcciones(tecnicoId) {
+  if (!validarBatuta()) return;
+
+  const clave = `deshabilitar-tecnico-${tecnicoId}`;
+  if (!iniciarAccion(clave)) return;
+
+  try {
+    const tecnicoRef = window.db.collection("tecnicos").doc(String(tecnicoId));
+
+    await tecnicoRef.update({
+      activo: false,
+      trabajo_id: null,
+      estado: "libre",
+    });
+
+    cerrarModalAccionesTecnico();
+    await cargarDatos();
+  } catch (error) {
+    console.error("Error deshabilitando técnico:", error);
+    alert("No se pudo deshabilitar el técnico.");
+  } finally {
+    finalizarAccion(clave);
+  }
+}
