@@ -408,3 +408,8 @@ async function deshabilitarTecnicoDesdeAcciones(tecnicoId) {
     finalizarAccion(clave);
   }
 }
+function formatearEstado(estado) {
+  if (!estado) return "";
+
+  return estado.replaceAll("_", " ").replace(/\b\w/g, (l) => l.toUpperCase());
+}
