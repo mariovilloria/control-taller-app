@@ -8,7 +8,7 @@ APP_ENV = os.environ.get("APP_ENV", "test").strip().lower()
 
 FIREBASE_PROJECTS = {
     "test": {
-        "credential_path": "backend/firebase-key-test.json",
+        "credential_path": "firebase-key-test.json",
         "web_config": {
             "apiKey": "AIzaSyAyMuYDurJS7wTRi4jXrXOeH4G3-PGfj10",
             "authDomain": "control-taller-test.firebaseapp.com",
@@ -19,7 +19,7 @@ FIREBASE_PROJECTS = {
         },
     },
     "prod": {
-        "credential_path": "backend/firebase-key.json",
+        "credential_path": "firebase-key.json",
         "web_config": {
             "apiKey": "AIzaSyA28Yl41a2-Tz0LSLVVmcoyfP_5hlTWAfs",
             "authDomain": "control-taller-83ca4.firebaseapp.com",
