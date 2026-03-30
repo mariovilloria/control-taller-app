@@ -1631,12 +1631,22 @@ ${
 >
   Cambiar estado
 </button>
-        <button class="estado-opcion" onclick="alert('${tieneDiaLibre ? "Quitar" : "Marcar"} día libre ${tecnico.id}')">
-          ${tieneDiaLibre ? "Quitar día libre" : "Marcar día libre"}
-        </button>
-        <button class="estado-opcion" onclick="deshabilitarTecnicoDesdeAcciones(${tecnico.id})">
-          Deshabilitar
-        </button>
+<button
+  class="estado-opcion"
+  onclick="cerrarModalAccionesTecnico(); toggleDiaLibreTecnico(${tecnico.id}, ${tieneDiaLibre ? "false" : "true"})"
+>
+  ${tieneDiaLibre ? "Quitar día libre" : "Marcar día libre"}
+</button>
+<button
+  class="estado-opcion"
+  onclick="${
+    tecnico.estado === "trabajando" || tecnico.estado === "almuerzo"
+      ? "alert('No puedes deshabilitar un técnico en actividad')"
+      : `deshabilitarTecnicoDesdeAcciones(${tecnico.id})`
+  }"
+>
+  Deshabilitar
+</button>
       `;
           } else {
             htmlOpciones = `
@@ -1942,9 +1952,10 @@ ${
             const tipo = (t.tipo || "fijo").toLowerCase();
             const activo = t.activo !== false;
 
-            if (tipo !== "eventual") return 0;
-            if (activo) return 1;
-            return 2;
+            if (activo && tipo !== "eventual") return 0;
+            if (activo && tipo === "eventual") return 1;
+            if (!activo && tipo !== "eventual") return 2;
+            return 3;
           };
 
           const ga = grupoTecnico(a);
@@ -3235,17 +3246,17 @@ ${
               const tipo = (t.tipo || "fijo").toLowerCase();
               const activo = t.activo !== false;
 
-              if (tipo !== "eventual") return 0;
-              if (activo) return 1;
-              return 2;
+              if (activo && tipo !== "eventual") return 0;
+              if (activo && tipo === "eventual") return 1;
+              if (!activo && tipo !== "eventual") return 2;
+              return 3;
             };
 
             const ga = grupoTecnico(a);
             const gb = grupoTecnico(b);
 
             if (ga !== gb) return ga - gb;
-
-            if (ga === 2) {
+            if (ga >= 2) {
               return (a.nombre || "").localeCompare(b.nombre || "", "es", {
                 sensitivity: "base",
               });
@@ -3300,6 +3311,7 @@ ${
             const estado = (t.estado || "").toLowerCase();
             const esEventual = (t.tipo || "fijo").toLowerCase() === "eventual";
             const eventualInactivo = esEventual && t.activo === false;
+            const tecnicoInactivo = t.activo === false;
             const trabajoActual = t.trabajo_id
               ? trabajosPorId[t.trabajo_id]
               : null;
@@ -3315,8 +3327,8 @@ ${
             let disabledAttr = "";
             let onclickBoton = `onclick="asignarTecnico(${trabajoId}, ${t.id})"`;
 
-            if (eventualInactivo) {
-              textoBoton = "Eventual inactivo";
+            if (tecnicoInactivo) {
+              textoBoton = "Técnico deshabilitado";
               claseBoton = "btn-secundario btn-asignar-card";
               disabledAttr = "disabled";
               onclickBoton = "";
@@ -3351,13 +3363,13 @@ ${
                 ? "Técnico eventual inactivo"
                 : "Sin trabajo asignado";
 
-            const onclickCard = eventualInactivo
+            const onclickCard = tecnicoInactivo
               ? ""
               : `onclick="toggleTecnicoAsignacionExpandido(${t.id})"`;
 
             return `
         <div
-          class="asignacion-card estado-${escapeHtml(estado)} ${expandida ? "expandida" : "colapsada"} ${eventualInactivo ? "asignacion-card-inactiva" : ""}"
+          class="asignacion-card estado-${escapeHtml(estado)} ${expandida ? "expandida" : "colapsada"} ${tecnicoInactivo ? "asignacion-card-inactiva" : ""}"
           ${onclickCard}
         >
           <div class="asignacion-card-top">
@@ -3373,7 +3385,7 @@ ${
 
           <div class="asignacion-card-resumen">${escapeHtml(resumenColapsado)}</div>
           <div class="asignacion-ayuda-expandir">
-            ${eventualInactivo ? "Técnico eventual deshabilitado" : "Toca para ver más y asignar"}
+            ${tecnicoInactivo ? "Técnico deshabilitado" : "Toca para ver más y asignar"}
           </div>
 
           <div class="asignacion-detalle">
