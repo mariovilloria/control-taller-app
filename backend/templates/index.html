@@ -518,7 +518,7 @@ Descargar mercadería y organizar bodega"
     <div id="modalEstadoTecnico" class="modal-fondo">
       <div class="modal-contenido">
         <div class="modal-titulo-linea">
-          <h3>🛠️ Cambiar estado del técnico</h3>
+          <h3>🍽️ Enviar a almuerzo</h3>
           <button class="btn-secundario" onclick="cerrarModalEstadoTecnico()">
             Cerrar
           </button>
@@ -526,30 +526,10 @@ Descargar mercadería y organizar bodega"
 
         <div id="estadoTecnicoResumen" class="asignacion-trabajo-resumen"></div>
 
-        <div class="estado-opciones-grid">
-          <button
-            class="estado-opcion libre"
-            onclick="seleccionarEstadoTecnico('libre')"
-          >
-            <div class="estado-opcion-titulo">Libre</div>
-            <div class="estado-opcion-sub">Disponible para nuevo trabajo</div>
-          </button>
-
-          <button
-            class="estado-opcion almuerzo"
-            onclick="seleccionarEstadoTecnico('almuerzo')"
-          >
-            <div class="estado-opcion-titulo">Almuerzo</div>
-            <div class="estado-opcion-sub">
-              Registrar salida y regreso estimado
-            </div>
-          </button>
-        </div>
-
         <div
           id="estadoTecnicoCamposExtra"
           class="estado-campos-extra"
-          style="display: none"
+          style="display: block"
         ></div>
 
         <div class="acciones">
@@ -557,7 +537,7 @@ Descargar mercadería y organizar bodega"
             class="btn-principal"
             onclick="confirmarCambioEstadoTecnico()"
           >
-            Guardar cambio
+            Enviar a almuerzo
           </button>
           <button class="btn-secundario" onclick="cerrarModalEstadoTecnico()">
             Cancelar
@@ -1287,7 +1267,7 @@ ${
                     <button
                         class="btn-actividad finalizar"
                         title="Cerrar actividad"
-                        onclick="event.stopPropagation(); cerrarActividad(${trabajo.id}, ${act.id})"
+                        onclick="event.stopPropagation(); confirmarCerrarActividad(${trabajo.id}, ${act.id})"
                     >✓</button>
                 `
                     : ""
@@ -1624,19 +1604,38 @@ ${
           }
         } else {
           if (tecnico.activo) {
+            const yaAlmorzoHoy = almuerzoEsDeHoy(tecnico);
+
             htmlOpciones = `
+${
+  tecnico.estado === "almuerzo"
+    ? `
+      <button
+        class="estado-opcion"
+        onclick="cerrarModalAccionesTecnico(); cambiarEstadoTecnico(${tecnico.id}, { estado: 'libre' })"
+      >
+        Regreso de almuerzo
+      </button>
+    `
+    : !yaAlmorzoHoy
+      ? `
 <button
   class="estado-opcion"
-  onclick="cerrarModalAccionesTecnico(); abrirModalEstadoTecnico(${tecnico.id})"
+  onclick="cerrarModalAccionesTecnico(); abrirModalEstadoTecnico(${tecnico.id}, 'almuerzo')"
 >
-  Cambiar estado
+  Enviar a almuerzo
 </button>
+    `
+      : ""
+}
+
 <button
   class="estado-opcion"
   onclick="cerrarModalAccionesTecnico(); toggleDiaLibreTecnico(${tecnico.id}, ${tieneDiaLibre ? "false" : "true"})"
 >
   ${tieneDiaLibre ? "Quitar día libre" : "Marcar día libre"}
 </button>
+
 <button
   class="estado-opcion"
   onclick="${
@@ -1647,7 +1646,7 @@ ${
 >
   Deshabilitar
 </button>
-      `;
+`;
           } else {
             htmlOpciones = `
 <button class="estado-opcion" onclick="habilitarTecnicoDesdeAcciones(${tecnico.id})">
@@ -1918,6 +1917,9 @@ ${
         item.addEventListener("mouseleave", cancelarHoldTecnico);
 
         item.addEventListener("touchstart", () => iniciarHoldTecnico(t.id), {
+          passive: true,
+        });
+        item.addEventListener("touchmove", cancelarHoldTecnico, {
           passive: true,
         });
         item.addEventListener("touchend", cancelarHoldTecnico);
@@ -2334,7 +2336,6 @@ ${
         document.getElementById("contenidoResumenTrabajo").innerHTML = "";
         document.getElementById("modalResumenTrabajo").style.display = "none";
       }
-
       function abrirModalEstadoTecnico(tecnicoId) {
         if (!validarBatuta()) return;
 
@@ -2350,18 +2351,33 @@ ${
         if (!tecnico) return;
 
         estadoTecnicoActualId = tecnicoId;
-        estadoTecnicoSeleccionado = null;
+        estadoTecnicoSeleccionado = "almuerzo";
 
         const htmlResumen = `
-        <div><strong>Técnico:</strong> ${escapeHtml(tecnico.nombre || "")}</div>
-        <div><strong>Estado actual:</strong> ${escapeHtml(tecnico.estado || "sin dato")}</div>
-        <div><strong>Trabajo actual:</strong> ${escapeHtml(trabajo?.descripcion || "Sin trabajo asignado")}</div>
-        <div><strong>Responsable actual:</strong> ${escapeHtml(trabajo ? nombreResponsable(trabajo) : "—")}</div>
-    `;
+    <div><strong>Técnico:</strong> ${escapeHtml(tecnico.nombre || "")}</div>
+    <div><strong>Estado actual:</strong> ${escapeHtml(tecnico.estado || "sin dato")}</div>
+    <div><strong>Trabajo actual:</strong> ${escapeHtml(trabajo?.descripcion || "Sin trabajo asignado")}</div>
+    <div><strong>Responsable actual:</strong> ${escapeHtml(trabajo ? nombreResponsable(trabajo) : "—")}</div>
+  `;
 
         document.getElementById("estadoTecnicoResumen").innerHTML = htmlResumen;
 
-        renderizarCamposEstadoTecnico();
+        const box = document.getElementById("estadoTecnicoCamposExtra");
+        const ahora = new Date();
+        const horaActual = `${String(ahora.getHours()).padStart(2, "0")}:${String(ahora.getMinutes()).padStart(2, "0")}`;
+
+        box.style.display = "block";
+        box.innerHTML = `
+    <div class="estado-campo-bloque">
+      <label class="estado-campo-label" for="almuerzoHoraSalida">Hora de salida</label>
+      <input id="almuerzoHoraSalida" type="time" value="${horaActual}">
+    </div>
+    <div class="estado-campo-bloque">
+      <label class="estado-campo-label" for="almuerzoMinutos">Minutos estimados de almuerzo</label>
+      <input id="almuerzoMinutos" type="text" value="60" placeholder="Ej: 60">
+    </div>
+  `;
+
         actualizarBotonGuardarEstadoTecnico();
         document.getElementById("modalEstadoTecnico").style.display = "block";
       }
@@ -2382,119 +2398,63 @@ ${
         );
         if (!btn) return;
 
-        const tecnico = (ultimoResumen.tecnicos || []).find(
-          (t) => t.id === estadoTecnicoActualId,
-        );
-        const estadoActual = tecnico?.estado || null;
+        const minutos = (
+          document.getElementById("almuerzoMinutos")?.value || ""
+        ).trim();
+        const horaSalida = (
+          document.getElementById("almuerzoHoraSalida")?.value || ""
+        ).trim();
 
-        const sinSeleccion = !estadoTecnicoSeleccionado;
-        const mismoEstado = estadoTecnicoSeleccionado === estadoActual;
-
-        btn.disabled = sinSeleccion || mismoEstado;
-        btn.classList.toggle("btn-cargando", false);
-      }
-      function seleccionarEstadoTecnico(estado) {
-        const tecnico = (ultimoResumen.tecnicos || []).find(
-          (t) => t.id === estadoTecnicoActualId,
-        );
-        const estadoActual = tecnico?.estado || null;
-
-        if (estado === estadoActual) return;
-
-        estadoTecnicoSeleccionado = estado;
-
-        renderizarCamposEstadoTecnico();
-        actualizarBotonGuardarEstadoTecnico();
+        btn.disabled = !horaSalida || !minutos || isNaN(minutos);
       }
 
       function renderizarCamposEstadoTecnico() {
-        const tecnico = (ultimoResumen.tecnicos || []).find(
-          (t) => t.id === estadoTecnicoActualId,
-        );
-        const estadoActual = tecnico?.estado || null;
         const box = document.getElementById("estadoTecnicoCamposExtra");
+        if (!box) return;
 
-        document.querySelectorAll(".estado-opcion").forEach((btn) => {
-          btn.classList.remove("activa");
-          btn.disabled = false;
-          btn.style.opacity = "";
-          btn.style.pointerEvents = "";
+        const ahora = new Date();
+        const horaActual = `${String(ahora.getHours()).padStart(2, "0")}:${String(ahora.getMinutes()).padStart(2, "0")}`;
 
-          const clasesEstado = ["libre", "almuerzo"];
-          const estadoBtn = clasesEstado.find((c) => btn.classList.contains(c));
-
-          if (estadoBtn === estadoTecnicoSeleccionado) {
-            btn.classList.add("activa");
-          }
-
-          if (estadoBtn === estadoActual) {
-            btn.disabled = true;
-            btn.style.opacity = "0.45";
-            btn.style.pointerEvents = "none";
-          }
-        });
-
-        if (
-          !estadoTecnicoSeleccionado ||
-          estadoTecnicoSeleccionado === "libre"
-        ) {
-          box.innerHTML = "";
-          box.style.display = "none";
-          return;
-        }
-
-        if (estadoTecnicoSeleccionado === "almuerzo") {
-          const ahora = new Date();
-          const horaActual = `${String(ahora.getHours()).padStart(2, "0")}:${String(ahora.getMinutes()).padStart(2, "0")}`;
-
-          box.style.display = "block";
-          box.innerHTML = `
-            <div class="estado-campo-bloque">
-                <label class="estado-campo-label" for="almuerzoHoraSalida">Hora de salida</label>
-                <input id="almuerzoHoraSalida" type="time" value="${horaActual}">
-            </div>
-            <div class="estado-campo-bloque">
-                <label class="estado-campo-label" for="almuerzoMinutos">Minutos estimados de almuerzo</label>
-                <input id="almuerzoMinutos" type="text" value="60" placeholder="Ej: 60">
-            </div>
-        `;
-          return;
-        }
-
-        box.innerHTML = "";
-        box.style.display = "none";
+        box.style.display = "block";
+        box.innerHTML = `
+  <div class="estado-campo-bloque">
+    <label class="estado-campo-label" for="almuerzoHoraSalida">Hora de salida</label>
+    <input id="almuerzoHoraSalida" type="time" value="${horaActual}" oninput="actualizarBotonGuardarEstadoTecnico()">
+  </div>
+  <div class="estado-campo-bloque">
+    <label class="estado-campo-label" for="almuerzoMinutos">Minutos estimados de almuerzo</label>
+    <input id="almuerzoMinutos" type="text" value="60" placeholder="Ej: 60" oninput="actualizarBotonGuardarEstadoTecnico()">
+  </div>
+`;
       }
 
       async function confirmarCambioEstadoTecnico() {
-        if (!estadoTecnicoActualId || !estadoTecnicoSeleccionado) {
-          alert("Debes seleccionar un estado.");
+        if (!estadoTecnicoActualId) {
+          alert("No se encontró el técnico.");
           return;
         }
 
-        const payload = { estado: estadoTecnicoSeleccionado };
+        const minutosInput = document.getElementById("almuerzoMinutos");
+        const horaSalidaInput = document.getElementById("almuerzoHoraSalida");
 
-        if (estadoTecnicoSeleccionado === "almuerzo") {
-          const minutosInput = document.getElementById("almuerzoMinutos");
-          const horaSalidaInput = document.getElementById("almuerzoHoraSalida");
+        const minutos = (minutosInput?.value || "").trim();
+        const horaSalida = (horaSalidaInput?.value || "").trim();
 
-          const minutos = (minutosInput?.value || "").trim();
-          const horaSalida = (horaSalidaInput?.value || "").trim();
-
-          if (!horaSalida) {
-            alert("Debes ingresar la hora de salida al almuerzo.");
-            return;
-          }
-
-          if (!minutos || isNaN(minutos)) {
-            alert("Debes ingresar minutos válidos para el almuerzo.");
-            return;
-          }
-
-          payload.minutos = parseInt(minutos, 10);
-          payload.hora_salida = horaSalida;
+        if (!horaSalida) {
+          alert("Debes ingresar la hora de salida al almuerzo.");
+          return;
         }
 
-        await cambiarEstadoTecnico(estadoTecnicoActualId, payload);
+        if (!minutos || isNaN(minutos)) {
+          alert("Debes ingresar minutos válidos para el almuerzo.");
+          return;
+        }
+
+        await cambiarEstadoTecnico(estadoTecnicoActualId, {
+          estado: "almuerzo",
+          minutos: parseInt(minutos, 10),
+          hora_salida: horaSalida,
+        });
       }
 
       async function cambiarEstadoTecnico(tecnicoId, payload) {
@@ -3344,7 +3304,9 @@ ${
               onclickBoton = "";
             } else if (estado === "trabajando" && trabajoActual) {
               textoBoton = "Mover a esta actividad";
-            } else if (!["libre", "trabajando"].includes(estado)) {
+            } else if (estado === "almuerzo") {
+              textoBoton = "Llamar de almuerzo y asignar";
+            } else if (!["libre", "trabajando", "almuerzo"].includes(estado)) {
               textoBoton = "No disponible ahora";
               claseBoton = "btn-secundario btn-asignar-card";
               disabledAttr = "disabled";
@@ -4157,6 +4119,14 @@ ${
         }
       }
 
+      function confirmarCerrarActividad(trabajoId, actividadId) {
+        const ok = confirm("¿Estás seguro de cerrar esta actividad?");
+
+        if (!ok) return;
+
+        cerrarActividad(trabajoId, actividadId);
+      }
+
       async function pausarActividad(trabajoId, actividadId) {
         if (!validarBatuta()) return;
 
@@ -4425,30 +4395,26 @@ ${
                     Se cerrarán estas actividades:
                 </div>
                 <div style="display:flex; flex-direction:column; gap:8px;">
-                    ${actividadesPorCerrar
-                      .map((act, i) => {
-                        const estado = (
-                          act.estado || "pendiente"
-                        ).toLowerCase();
-                        const tecnicos = Array.isArray(act.tecnicos)
-                          ? act.tecnicos
-                          : [];
-                        const historial = Array.isArray(act.historial_tecnicos)
-                          ? act.historial_tecnicos
-                          : [];
+${actividadesPorCerrar
+  .map((act) => {
+    const estado = (act.estado || "pendiente").toLowerCase();
+    const tecnicos = Array.isArray(act.tecnicos) ? act.tecnicos : [];
+    const historial = Array.isArray(act.historial_tecnicos)
+      ? act.historial_tecnicos
+      : [];
 
-                        return `
-                                <div style="padding:10px 12px; border:1px solid #d9dee7; border-radius:10px; background:#f8fafc;">
-                                    <div><strong>${i + 1}. ${escapeHtml(act.descripcion || "Sin descripción")}</strong></div>
-                                    <div style="margin-top:4px; color:#475569;">
-                                        Estado: ${escapeHtml(estado)}
-                                        · Técnicos activos: ${tecnicos.length}
-                                        · Historial: ${historial.length}
-                                    </div>
-                                </div>
-                            `;
-                      })
-                      .join("")}
+    return `
+            <div style="padding:10px 12px; border:1px solid #d9dee7; border-radius:10px; background:#f8fafc;">
+                <div><strong>${Number(act.id) || "—"}. ${escapeHtml(act.descripcion || "Sin descripción")}</strong></div>
+                <div style="margin-top:4px; color:#475569;">
+                    Estado: ${escapeHtml(estado)}
+                    · Técnicos activos: ${tecnicos.length}
+                    · Historial: ${historial.length}
+                </div>
+            </div>
+        `;
+  })
+  .join("")}
                 </div>
             </div>
         `
@@ -4757,7 +4723,7 @@ ${
         if (event.target === modalEditarActividad) cerrarModalEditarActividad();
         if (event.target === modalAsignacion) cerrarModalAsignacion();
         if (event.target === modalResumenTrabajo) cerrarResumenTrabajo();
-        if (event.target === modalEstadoTecnico) cerrarModalEstadoTecnico();
+        // modalEstadoTecnico ya no se cierra haciendo click por fuera
         if (event.target === modalConfirmacionAccion) cerrarModalConfirmacion();
         if (event.target === modalTrabajoSinTecnicos)
           cerrarModalTrabajoSinTecnicos();
@@ -4813,8 +4779,16 @@ ${
 
           const tecnicosSnapshot = await window.db.collection("tecnicos").get();
           tecnicosSnapshot.docs.forEach((doc) => {
+            const data = doc.data() || {};
+            const esEventual =
+              (data.tipo || "fijo").toLowerCase() === "eventual";
             const ref = window.db.collection("tecnicos").doc(doc.id);
+
             batch.update(ref, {
+              estado: "libre",
+              trabajo_id: null,
+              activo: esEventual ? false : true,
+              dia_libre: false,
               almuerzo_desde: null,
               almuerzo_hasta: null,
               almuerzo_registrado: false,
