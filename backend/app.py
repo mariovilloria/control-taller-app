@@ -337,6 +337,22 @@ def panel():
     )
 
 
+@app.route("/reportes")
+def reportes():
+    return render_template("reportes.html")
+
+
+@app.route("/api/resumen")
+def api_resumen():
+    trabajos_docs = db.collection("trabajos").order_by("id").stream()
+    tecnicos_docs = db.collection("tecnicos").order_by("id").stream()
+
+    trabajos = [doc.to_dict() for doc in trabajos_docs]
+    tecnicos = [doc.to_dict() for doc in tecnicos_docs]
+
+    return jsonify({"trabajos": trabajos, "tecnicos": tecnicos})
+
+
 @app.route("/trabajos/<int:trabajo_id>/editar", methods=["POST"])
 def editar_trabajo(trabajo_id):
     data = request.json or {}
@@ -411,4 +427,4 @@ import os
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=5000, debug=True)

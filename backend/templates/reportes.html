@@ -1,0 +1,680 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Reportes</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/reportes.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css"
+    />
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/es.js"></script>
+  </head>
+  <body>
+    <h1>Reportes</h1>
+
+    <h2>Productividad por técnico</h2>
+
+    <div class="filtros-reportes">
+      <div class="filtro-item">
+        <label for="filtroTecnico">Técnico</label><br />
+        <select id="filtroTecnico" onchange="cargarProductividad()">
+          <option value="">Todos</option>
+        </select>
+      </div>
+
+      <div class="filtro-item">
+        <label for="filtroTipoResponsable">Origen</label><br />
+        <select id="filtroTipoResponsable" onchange="cargarProductividad()">
+          <option value="">Todos</option>
+          <option value="vendedor">Vendedores</option>
+          <option value="interno">Interno</option>
+        </select>
+      </div>
+
+      <div class="filtro-item">
+        <label for="filtroResponsable">Responsable</label><br />
+        <select id="filtroResponsable" onchange="cargarProductividad()">
+          <option value="">Todos</option>
+        </select>
+      </div>
+
+      <div class="filtro-item">
+        <label for="filtroFechaRango">Fecha</label><br />
+        <input
+          type="text"
+          id="filtroFechaRango"
+          placeholder="Seleccionar rango"
+          readonly
+        />
+        <input type="hidden" id="filtroFechaDesde" />
+        <input type="hidden" id="filtroFechaHasta" />
+      </div>
+
+      <div class="filtro-item filtro-acciones">
+        <button type="button" onclick="limpiarFiltrosReportes()">
+          Limpiar
+        </button>
+      </div>
+    </div>
+
+    <div id="tabla-productividad"></div>
+    <div id="detalle-tecnico" class="detalle-tecnico"></div>
+
+    <br />
+    <a href="/panel" class="btn-volver">← Volver</a>
+
+    <script>
+      let ultimoResumenReportes = { tecnicos: [], trabajos: [] };
+
+      function obtenerFiltrosReportes() {
+        return {
+          tecnico: document.getElementById("filtroTecnico")?.value || "",
+          tipoResponsable:
+            document.getElementById("filtroTipoResponsable")?.value || "",
+          responsable:
+            document.getElementById("filtroResponsable")?.value || "",
+          fechaDesde: document.getElementById("filtroFechaDesde")?.value || "",
+          fechaHasta: document.getElementById("filtroFechaHasta")?.value || "",
+        };
+      }
+
+      function obtenerResponsableTrabajo(tr) {
+        return tr.origen === "interno"
+          ? tr.solicitante_nombre || tr.responsable_nombre || ""
+          : tr.vendedor_nombre || tr.responsable_nombre || "";
+      }
+
+      function parseFechaSegura(fechaIso) {
+        if (!fechaIso) return null;
+
+        const fecha = new Date(fechaIso);
+        if (!isNaN(fecha.getTime())) return fecha;
+
+        const texto = String(fechaIso).trim();
+        const match = texto.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!match) return null;
+
+        const anio = Number(match[1]);
+        const mes = Number(match[2]) - 1;
+        const dia = Number(match[3]);
+
+        return new Date(anio, mes, dia, 0, 0, 0, 0);
+      }
+
+      function parseFechaInputLocal(fechaStr, finDelDia = false) {
+        if (!fechaStr) return null;
+
+        const partes = String(fechaStr).split("-");
+        if (partes.length !== 3) return null;
+
+        const anio = Number(partes[0]);
+        const mes = Number(partes[1]) - 1;
+        const dia = Number(partes[2]);
+
+        if (finDelDia) {
+          return new Date(anio, mes, dia, 23, 59, 59, 999);
+        }
+
+        return new Date(anio, mes, dia, 0, 0, 0, 0);
+      }
+
+      function obtenerLimitesRangoReportes() {
+        const filtros = obtenerFiltrosReportes();
+        let desde = parseFechaInputLocal(filtros.fechaDesde, false);
+        let hasta = parseFechaInputLocal(filtros.fechaHasta, true);
+
+        if (!desde && !hasta) {
+          const hoy = new Date();
+          desde = new Date(
+            hoy.getFullYear(),
+            hoy.getMonth(),
+            hoy.getDate(),
+            0,
+            0,
+            0,
+            0,
+          );
+          hasta = new Date(
+            hoy.getFullYear(),
+            hoy.getMonth(),
+            hoy.getDate(),
+            23,
+            59,
+            59,
+            999,
+          );
+          return { desde, hasta };
+        }
+
+        return { desde, hasta };
+      }
+
+      function actividadCruzaRango(inicioIso, finIso) {
+        const { desde, hasta } = obtenerLimitesRangoReportes();
+
+        const inicio = parseFechaSegura(inicioIso);
+        const fin = parseFechaSegura(finIso || inicioIso);
+
+        if (!inicio && !fin) return false;
+
+        const inicioReal = inicio || fin;
+        const finReal = fin || inicio;
+
+        if (desde && finReal < desde) return false;
+        if (hasta && inicioReal > hasta) return false;
+
+        return true;
+      }
+
+      function formatearFechaActividad(fechaIso) {
+        const fecha = parseFechaSegura(fechaIso);
+        if (!fecha) return "";
+        const dia = String(fecha.getDate()).padStart(2, "0");
+        const mes = String(fecha.getMonth() + 1).padStart(2, "0");
+        const anio = fecha.getFullYear();
+        return `${dia}/${mes}/${anio}`;
+      }
+
+      function inicioDeHoy() {
+        const hoy = new Date();
+        return new Date(
+          hoy.getFullYear(),
+          hoy.getMonth(),
+          hoy.getDate(),
+          0,
+          0,
+          0,
+          0,
+        );
+      }
+
+      async function cargarProductividad() {
+        const res = await fetch("/api/resumen");
+        const data = await res.json();
+
+        const tecnicos = data.tecnicos || [];
+        const trabajos = data.trabajos || [];
+
+        ultimoResumenReportes = { tecnicos, trabajos };
+        llenarFiltros(tecnicos, trabajos);
+
+        const filtros = obtenerFiltrosReportes();
+
+        const productividad = {};
+
+        tecnicos.forEach((t) => {
+          productividad[t.id] = {
+            nombre: t.nombre,
+            actividades: 0,
+            tiempo: 0,
+          };
+        });
+
+        trabajos.forEach((tr) => {
+          const responsableTrabajo = obtenerResponsableTrabajo(tr);
+
+          if (
+            filtros.responsable &&
+            responsableTrabajo !== filtros.responsable
+          ) {
+            return;
+          }
+
+          (tr.actividades || []).forEach((act) => {
+            (act.historial_tecnicos || []).forEach((h) => {
+              const tecnicoId = h.id;
+
+              if (!productividad[tecnicoId]) return;
+              if (filtros.tecnico && (h.nombre || "") !== filtros.tecnico)
+                return;
+              const inicioHistorial =
+                h.asignado_at ||
+                h.iniciado_at ||
+                h.inicio_at ||
+                act.iniciado_at ||
+                act.creado_at ||
+                h.pausado_at ||
+                act.finalizado_at;
+
+              const finHistorial =
+                h.pausado_at ||
+                h.finalizado_at ||
+                act.finalizado_at ||
+                inicioHistorial;
+
+              if (!actividadCruzaRango(inicioHistorial, finHistorial)) return;
+
+              const minutos = Number(h.tiempo_acumulado_seg || 0) / 60;
+
+              productividad[tecnicoId].tiempo += minutos;
+              productividad[tecnicoId].actividades += 1;
+            });
+
+            (act.tecnicos || []).forEach((t) => {
+              const tecnicoId = t.id;
+
+              if (!productividad[tecnicoId]) return;
+              if (filtros.tecnico && (t.nombre || "") !== filtros.tecnico)
+                return;
+              const inicioActivo =
+                t.asignado_at || act.iniciado_at || act.creado_at;
+
+              const finActivo =
+                t.estado_en_trabajo === "trabajando"
+                  ? new Date().toISOString()
+                  : t.liberado_at ||
+                    t.pausado_at ||
+                    act.finalizado_at ||
+                    inicioActivo;
+
+              if (!actividadCruzaRango(inicioActivo, finActivo)) return;
+
+              let minutos = Number(t.tiempo_acumulado_seg || 0) / 60;
+
+              if (t.estado_en_trabajo === "trabajando" && t.asignado_at) {
+                const inicio = new Date(t.asignado_at);
+                const ahora = new Date();
+                const hoyInicio = inicioDeHoy();
+                const desde = inicio < hoyInicio ? hoyInicio : inicio;
+
+                if (
+                  !isNaN(desde.getTime()) &&
+                  !isNaN(ahora.getTime()) &&
+                  ahora >= desde
+                ) {
+                  minutos += (ahora - desde) / 60000;
+                }
+              }
+
+              if (minutos > 0) {
+                productividad[tecnicoId].tiempo += minutos;
+                productividad[tecnicoId].actividades += 1;
+              }
+            });
+          });
+        });
+
+        renderTabla(productividad);
+
+        if (filtros.tecnico) {
+          verDetalleTecnico(filtros.tecnico);
+        } else {
+          limpiarDetalleTecnico();
+        }
+      }
+
+      function limpiarFiltrosReportes() {
+        document.getElementById("filtroTecnico").value = "";
+        document.getElementById("filtroTipoResponsable").value = "";
+        document.getElementById("filtroResponsable").value = "";
+        document.getElementById("filtroFechaDesde").value = "";
+        document.getElementById("filtroFechaHasta").value = "";
+
+        const inputRango = document.getElementById("filtroFechaRango");
+        if (inputRango) inputRango.value = "";
+
+        if (typeof pickerFechaRango !== "undefined" && pickerFechaRango) {
+          pickerFechaRango.clear();
+        }
+
+        limpiarDetalleTecnico();
+        cargarProductividad();
+      }
+
+      function formatearMinutos(min) {
+        const h = Math.floor(min / 60);
+        const m = Math.floor(min % 60);
+        return `${h}h ${m}m`;
+      }
+
+      function seleccionarTecnicoDesdeTabla(nombreTecnico) {
+        const selectTecnico = document.getElementById("filtroTecnico");
+        if (!selectTecnico) return;
+
+        selectTecnico.value = nombreTecnico;
+        cargarProductividad();
+      }
+
+      function renderTabla(data) {
+        const cont = document.getElementById("tabla-productividad");
+        const filtros = obtenerFiltrosReportes();
+
+        let html = `
+          <table class="tabla-reportes">
+            <tr>
+              <th>Técnico</th>
+              <th>Actividades</th>
+              <th>Tiempo trabajado</th>
+              <th>Promedio por actividad</th>
+            </tr>
+        `;
+
+        let filasMostradas = 0;
+        const hayFiltrosActivos =
+          !!filtros.tecnico ||
+          !!filtros.responsable ||
+          !!filtros.fechaDesde ||
+          !!filtros.fechaHasta;
+
+        Object.values(data)
+          .filter((t) => {
+            if (filtros.tecnico && t.nombre !== filtros.tecnico) return false;
+
+            if (hayFiltrosActivos) {
+              return t.actividades > 0 || t.tiempo > 0;
+            }
+
+            return true;
+          })
+          .sort((a, b) => b.actividades - a.actividades)
+          .forEach((t) => {
+            const promedio = t.actividades > 0 ? t.tiempo / t.actividades : 0;
+            filasMostradas += 1;
+
+            html += `
+              <tr onclick="seleccionarTecnicoDesdeTabla('${String(t.nombre || "").replace(/'/g, "\\'")}')" class="fila-seleccionable">
+                <td>${t.nombre}</td>
+                <td>${t.actividades}</td>
+                <td>${formatearMinutos(t.tiempo)}</td>
+                <td>${formatearMinutos(promedio)}</td>
+              </tr>
+            `;
+          });
+
+        if (filasMostradas === 0) {
+          html += `
+            <tr>
+              <td colspan="4">No hay resultados con los filtros seleccionados.</td>
+            </tr>
+          `;
+        }
+
+        html += `</table>`;
+
+        cont.innerHTML = html;
+      }
+
+      function llenarFiltros(tecnicos, trabajos) {
+        const selectTecnico = document.getElementById("filtroTecnico");
+        const selectTipoResponsable = document.getElementById(
+          "filtroTipoResponsable",
+        );
+        const selectResponsable = document.getElementById("filtroResponsable");
+
+        if (!selectTecnico || !selectTipoResponsable || !selectResponsable)
+          return;
+
+        const tecnicoActual = selectTecnico.value;
+        const tipoResponsableActual = selectTipoResponsable.value;
+        const responsableActual = selectResponsable.value;
+
+        const nombresTecnicos = new Set();
+        tecnicos.forEach((t) => {
+          if (t.nombre) nombresTecnicos.add(t.nombre);
+        });
+
+        selectTecnico.innerHTML = `<option value="">Todos</option>`;
+        Array.from(nombresTecnicos)
+          .sort()
+          .forEach((nombre) => {
+            selectTecnico.innerHTML += `<option value="${nombre}">${nombre}</option>`;
+          });
+
+        if (
+          tecnicoActual &&
+          Array.from(nombresTecnicos).includes(tecnicoActual)
+        ) {
+          selectTecnico.value = tecnicoActual;
+        }
+
+        const vendedores = new Set();
+        const internos = new Set();
+
+        trabajos.forEach((tr) => {
+          if ((tr.origen || "").toLowerCase() === "interno") {
+            const nombreInterno =
+              tr.solicitante_nombre || tr.responsable_nombre || "";
+            if (nombreInterno) internos.add(nombreInterno);
+          } else {
+            const nombreVendedor =
+              tr.vendedor_nombre || tr.responsable_nombre || "";
+            if (nombreVendedor) vendedores.add(nombreVendedor);
+          }
+        });
+
+        selectTipoResponsable.innerHTML = `
+    <option value="">Todos</option>
+    <option value="vendedor">Vendedores</option>
+    <option value="interno">Interno</option>
+  `;
+
+        if (
+          tipoResponsableActual &&
+          ["vendedor", "interno"].includes(tipoResponsableActual)
+        ) {
+          selectTipoResponsable.value = tipoResponsableActual;
+        }
+
+        let responsablesFiltrados = [];
+
+        if (selectTipoResponsable.value === "vendedor") {
+          responsablesFiltrados = Array.from(vendedores).sort();
+        } else if (selectTipoResponsable.value === "interno") {
+          responsablesFiltrados = Array.from(internos).sort();
+        } else {
+          responsablesFiltrados = Array.from(
+            new Set([...vendedores, ...internos]),
+          ).sort();
+        }
+
+        selectResponsable.innerHTML = `<option value="">Todos</option>`;
+        responsablesFiltrados.forEach((nombre) => {
+          selectResponsable.innerHTML += `<option value="${nombre}">${nombre}</option>`;
+        });
+
+        if (
+          responsableActual &&
+          responsablesFiltrados.includes(responsableActual)
+        ) {
+          selectResponsable.value = responsableActual;
+        }
+      }
+
+      function verDetalleTecnico(nombreTecnico) {
+        const cont = document.getElementById("detalle-tecnico");
+        if (!cont) return;
+
+        const trabajos = Array.isArray(ultimoResumenReportes.trabajos)
+          ? ultimoResumenReportes.trabajos
+          : [];
+
+        const filtros = obtenerFiltrosReportes();
+        let filas = "";
+
+        trabajos.forEach((tr) => {
+          const responsableTrabajo = obtenerResponsableTrabajo(tr);
+          const origenTrabajo = (tr.origen || "").toLowerCase();
+
+          if (
+            filtros.tipoResponsable &&
+            origenTrabajo !== filtros.tipoResponsable
+          ) {
+            return;
+          }
+
+          if (
+            filtros.responsable &&
+            responsableTrabajo !== filtros.responsable
+          ) {
+            return;
+          }
+
+          (tr.actividades || []).forEach((act) => {
+            const historial = Array.isArray(act.historial_tecnicos)
+              ? act.historial_tecnicos
+              : [];
+
+            const activos = Array.isArray(act.tecnicos) ? act.tecnicos : [];
+
+            historial.forEach((h) => {
+              if ((h.nombre || "") !== nombreTecnico) return;
+              const inicioHistorial =
+                h.asignado_at ||
+                h.iniciado_at ||
+                h.inicio_at ||
+                act.iniciado_at ||
+                act.creado_at ||
+                h.pausado_at ||
+                act.finalizado_at;
+
+              const finHistorial =
+                h.pausado_at ||
+                h.finalizado_at ||
+                act.finalizado_at ||
+                inicioHistorial;
+
+              if (!actividadCruzaRango(inicioHistorial, finHistorial)) return;
+
+              filas += `
+                <tr class="${tr.origen === "interno" ? "fila-interna" : ""}">
+                  <td>${tr.id}</td>
+                  <td>${tr.origen === "interno" ? "Interno" : "Vendedor"}</td>
+                  <td>${responsableTrabajo}</td>
+                  <td>${tr.descripcion || ""}</td>
+                  <td>${act.descripcion || ""}</td>
+                  <td>${formatearFechaActividad(inicioHistorial)}</td>
+                  <td>${formatearMinutos(Number(h.tiempo_acumulado_seg || 0) / 60)}</td>
+                  <td>Finalizada / pausada</td>
+                </tr>
+              `;
+            });
+
+            activos.forEach((t) => {
+              if ((t.nombre || "") !== nombreTecnico) return;
+              const inicioActivo =
+                t.asignado_at || act.iniciado_at || act.creado_at;
+
+              const finActivo =
+                t.estado_en_trabajo === "trabajando"
+                  ? new Date().toISOString()
+                  : t.liberado_at ||
+                    t.pausado_at ||
+                    act.finalizado_at ||
+                    inicioActivo;
+
+              if (!actividadCruzaRango(inicioActivo, finActivo)) return;
+
+              let minutos = Number(t.tiempo_acumulado_seg || 0) / 60;
+
+              if (t.estado_en_trabajo === "trabajando" && t.asignado_at) {
+                const inicio = new Date(t.asignado_at);
+                const ahora = new Date();
+                const hoyInicio = inicioDeHoy();
+                const desde = inicio < hoyInicio ? hoyInicio : inicio;
+
+                if (
+                  !isNaN(desde.getTime()) &&
+                  !isNaN(ahora.getTime()) &&
+                  ahora >= desde
+                ) {
+                  minutos += (ahora - desde) / 60000;
+                }
+              }
+
+              if (minutos <= 0) return;
+
+              filas += `
+                <tr class="${tr.origen === "interno" ? "fila-interna" : ""}">
+                  <td>${tr.id}</td>
+                  <td>${tr.origen === "interno" ? "Interno" : "Vendedor"}</td>
+                  <td>${responsableTrabajo}</td>
+                  <td>${tr.descripcion || ""}</td>
+                  <td>${act.descripcion || ""}</td>
+                  <td>${formatearFechaActividad(inicioActivo)}</td>
+                  <td>${formatearMinutos(minutos)}</td>
+                  <td>${t.estado_en_trabajo || "activa"}</td>
+                </tr>
+              `;
+            });
+          });
+        });
+
+        if (!filas) {
+          cont.innerHTML = `
+            <h3>Detalle de ${nombreTecnico}</h3>
+            <p>No hay actividades registradas con los filtros seleccionados.</p>
+          `;
+          return;
+        }
+
+        cont.innerHTML = `
+  <h3>Detalle de ${nombreTecnico}</h3>
+  <div class="tabla-scroll-wrap">
+    <table class="tabla-reportes tabla-detalle">
+      <tr>
+        <th>Trabajo</th>
+        <th>Origen</th>
+        <th>Responsable</th>
+        <th>Detalle trabajo</th>
+        <th>Actividad</th>
+        <th>Fecha</th>
+        <th>Tiempo</th>
+        <th>Estado</th>
+      </tr>
+      ${filas}
+    </table>
+  </div>
+`;
+      }
+
+      function limpiarDetalleTecnico() {
+        const cont = document.getElementById("detalle-tecnico");
+        if (!cont) return;
+        cont.innerHTML = "";
+      }
+
+      const pickerFechaRango = flatpickr("#filtroFechaRango", {
+        mode: "range",
+        dateFormat: "Y-m-d",
+        locale: flatpickr.l10ns.es,
+        allowInput: false,
+        onClose: function (selectedDates) {
+          const inputDesde = document.getElementById("filtroFechaDesde");
+          const inputHasta = document.getElementById("filtroFechaHasta");
+
+          if (!inputDesde || !inputHasta) return;
+
+          if (!selectedDates || selectedDates.length === 0) {
+            inputDesde.value = "";
+            inputHasta.value = "";
+            cargarProductividad();
+            return;
+          }
+
+          const formatearFecha = (fecha) => {
+            const anio = fecha.getFullYear();
+            const mes = String(fecha.getMonth() + 1).padStart(2, "0");
+            const dia = String(fecha.getDate()).padStart(2, "0");
+            return `${anio}-${mes}-${dia}`;
+          };
+
+          inputDesde.value = formatearFecha(selectedDates[0]);
+          inputHasta.value =
+            selectedDates.length > 1
+              ? formatearFecha(selectedDates[1])
+              : formatearFecha(selectedDates[0]);
+
+          cargarProductividad();
+        },
+      });
+
+      cargarProductividad();
+    </script>
+  </body>
+</html>
