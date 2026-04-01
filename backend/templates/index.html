@@ -21,7 +21,7 @@
             <div class="panel-top-titulo">
               🚗 Super Accesorios El Colorado {% if app_env == "test" %}
               <span style="color: red; font-weight: bold; margin-left: 10px"
-                >TEST</span
+                >TEST 2</span
               >
               {% endif %}
             </div>
@@ -1024,7 +1024,7 @@
                                                                                                                                                                           }
                                                                                                                                                                         }
 
-                                                                                                                                                                        cargarDatos();
+                                                                                                                                                                        renderizarPanelPrincipal(ultimoResumen);
                                                                                                                                                                       }
 
                                                                                                                                                                       function seleccionarOrigenEdicion(tipo) {
@@ -1066,7 +1066,7 @@
                                                                                                                                                                           }
                                                                                                                                                                         });
 
-                                                                                                                                                                        cargarDatos();
+                                                                                                                                                                        renderizarPanelPrincipal(ultimoResumen);
                                                                                                                                                                       }
 
                                                                                                                                                                       function trabajoExpandidoVisual(trabajo) {
@@ -1720,7 +1720,7 @@
                                                                                                                                                                         } else {
                                                                                                                                                                           tecnicosExpandidos.add(tecnicoId);
                                                                                                                                                                         }
-                                                                                                                                                                        cargarDatos();
+                                                                                                                                                                        renderizarPanelPrincipal(ultimoResumen);
                                                                                                                                                                       }
 
                                                                                                                                                                       function obtenerTrabajosPorEstado(trabajos) {
@@ -2233,7 +2233,7 @@
                                                                                                                                                                           }
                                                                                                                                                                         }
 
-                                                                                                                                                                        cargarDatos();
+                                                                                                                                                                        renderizarPanelPrincipal(ultimoResumen);
 
                                                                                                                                                                         setTimeout(() => {
                                                                                                                                                                           const card = document.getElementById(`trabajo-card-${trabajoId}`);
@@ -4717,7 +4717,7 @@
                                                                                                                                                                         if (btn) btn.textContent = mostrarFinalizados ? "Ocultar" : "Mostrar";
                                                                                                                                                                         if (wrap) wrap.classList.toggle("visible", mostrarFinalizados);
 
-                                                                                                                                                                        cargarDatos();
+                                                                                                                                                                        renderizarPanelPrincipal(ultimoResumen);
                                                                                                                                                                       }
 
                                                                                                                                                                       function cerrarModalConfirmacion() {
