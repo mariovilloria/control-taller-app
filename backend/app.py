@@ -55,15 +55,6 @@ app = Flask(__name__)
 app.secret_key = "control_taller_clave_inicial_2026"
 
 
-doc = next(db.collection("trabajos").where("id", "==", 294).limit(1).stream())
-
-trabajo = doc.to_dict()
-
-import json
-
-print(json.dumps(trabajo.get("actividades", []), indent=2, default=str))
-
-
 # =========================
 # Helpers
 # =========================
