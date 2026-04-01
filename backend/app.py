@@ -363,6 +363,7 @@ def api_resumen():
             "vendedor_nombre",
             "solicitante_nombre",
             "descripcion",
+            "estado",
             "actividades",
         ]
     )
