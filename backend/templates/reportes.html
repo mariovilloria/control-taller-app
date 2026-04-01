@@ -16,7 +16,7 @@
     <script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/es.js"></script>
   </head>
   <body>
-    <h1>Reportes</h1>
+    <h1>Reportes TEST Version 1"</h1>
 
     <h2>Productividad por técnico</h2>
 
@@ -195,7 +195,18 @@
       }
 
       async function cargarProductividad() {
-        const res = await fetch("/api/resumen");
+        const filtros = obtenerFiltrosReportes();
+        const params = new URLSearchParams();
+
+        if (filtros.fecha) {
+          params.append("fecha", filtros.fecha);
+        }
+
+        const url = params.toString()
+          ? `/api/resumen?${params.toString()}`
+          : "/api/resumen";
+
+        const res = await fetch(url);
         const data = await res.json();
 
         const tecnicos = data.tecnicos || [];
@@ -203,8 +214,6 @@
 
         ultimoResumenReportes = { tecnicos, trabajos };
         llenarFiltros(tecnicos, trabajos);
-
-        const filtros = obtenerFiltrosReportes();
 
         const productividad = {};
 

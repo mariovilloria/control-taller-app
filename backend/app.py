@@ -4,6 +4,7 @@ import os
 import firebase_admin
 from firebase_admin import credentials, firestore
 
+
 APP_ENV = os.environ.get("APP_ENV", "test").strip().lower()
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -52,6 +53,15 @@ if not firebase_admin._apps:
 db = firestore.client()
 app = Flask(__name__)
 app.secret_key = "control_taller_clave_inicial_2026"
+
+
+doc = next(db.collection("trabajos").where("id", "==", 294).limit(1).stream())
+
+trabajo = doc.to_dict()
+
+import json
+
+print(json.dumps(trabajo.get("actividades", []), indent=2, default=str))
 
 
 # =========================
@@ -352,11 +362,39 @@ def reportes():
 
 @app.route("/api/resumen")
 def api_resumen():
-    trabajos_docs = db.collection("trabajos").order_by("id").stream()
-    tecnicos_docs = db.collection("tecnicos").order_by("id").stream()
+    fecha = (request.args.get("fecha") or "").strip()
 
-    trabajos = [doc.to_dict() for doc in trabajos_docs]
-    tecnicos = [doc.to_dict() for doc in tecnicos_docs]
+    trabajos_query = db.collection("trabajos").select(
+        [
+            "id",
+            "origen",
+            "responsable_nombre",
+            "vendedor_nombre",
+            "solicitante_nombre",
+            "descripcion",
+            "actividades",
+        ]
+    )
+
+    if fecha:
+        trabajos_query = trabajos_query.where("fecha", "==", fecha)
+
+    trabajos_ref = trabajos_query.order_by("id").stream()
+
+    tecnicos_ref = (
+        db.collection("tecnicos")
+        .select(
+            [
+                "id",
+                "nombre",
+            ]
+        )
+        .order_by("id")
+        .stream()
+    )
+
+    trabajos = [doc.to_dict() for doc in trabajos_ref]
+    tecnicos = [doc.to_dict() for doc in tecnicos_ref]
 
     return jsonify({"trabajos": trabajos, "tecnicos": tecnicos})
 
