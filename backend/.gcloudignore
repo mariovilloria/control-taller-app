@@ -1,7 +1,9 @@
-firebase-key.json
-firebase-key-test.json
-.env
+.gcloudignore
+.git
+.gitignore
 __pycache__/
 *.pyc
+.env
+firebase-key-test.json
 copiar_prod_a_test.py
 crear_usuarios.py

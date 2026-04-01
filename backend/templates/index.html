@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link
       rel="stylesheet"
-      href="{{ url_for('static', filename='styles.css') }}"
+      href="{{ url_for('static', filename='css/styles.css') }}"
     />
   </head>
   <body>
@@ -107,12 +107,14 @@
                 </button>
               </form>
 
+              {% if es_admin %}
               <button
                 class="panel-menu-link"
                 onclick="window.location.href = '/reportes'"
               >
                 Reportes
               </button>
+              {% endif %}
 
               <button
                 id="btnCierreDia"
