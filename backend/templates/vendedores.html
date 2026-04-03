@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vendedores</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: Arial, Helvetica, sans-serif;
+        background: #f4f6f8;
+        color: #1f2937;
+        padding: 24px;
+      }
+
+      .page {
+        max-width: 1100px;
+        margin: 0 auto;
+      }
+
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 24px;
+      }
+
+      .btn-volver {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 10px 16px;
+        background: #e5e7eb;
+        color: #111827;
+        text-decoration: none;
+        border-radius: 10px;
+        font-weight: bold;
+      }
+
+      .tabla-wrap {
+        background: #ffffff;
+        border-radius: 18px;
+        padding: 18px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+        overflow-x: auto;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      thead th {
+        text-align: left;
+        padding: 14px 12px;
+        border-bottom: 2px solid #e5e7eb;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #6b7280;
+      }
+
+      tbody td {
+        padding: 14px 12px;
+        border-bottom: 1px solid #eef2f7;
+        vertical-align: middle;
+        font-size: 14px;
+      }
+
+      tbody tr:hover {
+        background: #f9fafb;
+      }
+
+      .badge {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: bold;
+      }
+
+      .badge-activo {
+        background: #dcfce7;
+        color: #166534;
+      }
+
+      .badge-inactivo {
+        background: #fee2e2;
+        color: #991b1b;
+      }
+
+      .btn-editar {
+        display: inline-block;
+        padding: 6px 12px;
+        border-radius: 8px;
+        background: #2563eb;
+        color: #ffffff;
+        font-size: 13px;
+        font-weight: bold;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      {% if ok == "creado" %}
+      <div
+        style="
+          margin-bottom: 16px;
+          padding: 12px;
+          background: #d1fae5;
+          color: #065f46;
+          border-radius: 10px;
+          font-weight: bold;
+        "
+      >
+        Vendedor creado correctamente
+      </div>
+      {% elif ok == "actualizado" %}
+      <div
+        style="
+          margin-bottom: 16px;
+          padding: 12px;
+          background: #dbeafe;
+          color: #1d4ed8;
+          border-radius: 10px;
+          font-weight: bold;
+        "
+      >
+        Vendedor actualizado correctamente
+      </div>
+      {% endif %}
+
+      <div class="header">
+        <h2>Vendedores</h2>
+        <div style="display: flex; gap: 10px">
+          <a
+            href="/vendedores/nuevo"
+            class="btn-volver"
+            style="background: #2563eb; color: white"
+          >
+            + Nuevo vendedor
+          </a>
+          <a href="/panel" class="btn-volver">Volver</a>
+        </div>
+      </div>
+
+      <div class="tabla-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Nombre</th>
+              <th>Activo</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for v in vendedores %}
+            <tr>
+              <td>{{ v.id }}</td>
+              <td>{{ v.nombre }}</td>
+              <td>
+                <span
+                  class="badge {{ 'badge-activo' if v.activo else 'badge-inactivo' }}"
+                >
+                  {{ "Activo" if v.activo else "Inactivo" }}
+                </span>
+              </td>
+              <td>
+                <a href="/vendedores/{{ v.id }}/editar" class="btn-editar">
+                  Editar
+                </a>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </body>
+</html>

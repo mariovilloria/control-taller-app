@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Técnicos</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: Arial, Helvetica, sans-serif;
+        background: #f4f6f8;
+        color: #1f2937;
+        padding: 24px;
+      }
+
+      .page {
+        max-width: 1100px;
+        margin: 0 auto;
+      }
+
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 24px;
+      }
+
+      .btn-volver {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 10px 16px;
+        background: #e5e7eb;
+        color: #111827;
+        text-decoration: none;
+        border-radius: 10px;
+        font-weight: bold;
+      }
+
+      .tabla-wrap {
+        background: #ffffff;
+        border-radius: 18px;
+        padding: 18px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+        overflow-x: auto;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+
+      thead th {
+        text-align: left;
+        padding: 14px 12px;
+        border-bottom: 2px solid #e5e7eb;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #6b7280;
+      }
+
+      tbody td {
+        padding: 14px 12px;
+        border-bottom: 1px solid #eef2f7;
+        vertical-align: middle;
+        font-size: 14px;
+      }
+
+      tbody tr {
+        transition: background 0.2s ease;
+      }
+
+      tbody tr:hover {
+        background: #f9fafb;
+      }
+
+      .badge {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: bold;
+      }
+
+      .badge-normal {
+        background: #dbeafe;
+        color: #1d4ed8;
+      }
+
+      .badge-eventual {
+        background: #fff7ed;
+        color: #c2410c;
+      }
+
+      .badge-habilitado {
+        background: #dcfce7;
+        color: #166534;
+      }
+
+      .badge-deshabilitado {
+        background: #fee2e2;
+        color: #991b1b;
+      }
+
+      .btn-editar {
+        display: inline-block;
+        padding: 6px 12px;
+        border-radius: 8px;
+        background: #2563eb;
+        color: #ffffff;
+        font-size: 13px;
+        font-weight: bold;
+        text-decoration: none;
+        transition: background 0.2s ease;
+      }
+
+      .btn-editar:hover {
+        background: #1d4ed8;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      {% if ok == "creado" %}
+      <div
+        style="
+          margin-bottom: 16px;
+          padding: 12px 14px;
+          background: #d1fae5;
+          color: #065f46;
+          border-radius: 10px;
+          font-weight: bold;
+        "
+      >
+        Técnico creado correctamente
+      </div>
+      {% elif ok == "actualizado" %}
+      <div
+        style="
+          margin-bottom: 16px;
+          padding: 12px 14px;
+          background: #dbeafe;
+          color: #1d4ed8;
+          border-radius: 10px;
+          font-weight: bold;
+        "
+      >
+        Técnico actualizado correctamente
+      </div>
+      {% endif %}
+
+      <div class="header">
+        <div>
+          <div
+            style="
+              font-size: 12px;
+              font-weight: bold;
+              color: #2563eb;
+              text-transform: uppercase;
+              letter-spacing: 0.08em;
+              margin-bottom: 4px;
+            "
+          >
+            Administración
+          </div>
+          <h2 style="margin: 0; font-size: 28px; color: #111827">Técnicos</h2>
+          <div style="margin-top: 6px; font-size: 14px; color: #6b7280">
+            Gestiona los técnicos disponibles en el sistema.
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 10px; flex-wrap: wrap">
+          <a
+            href="/tecnicos/nuevo"
+            class="btn-volver"
+            style="background: #2563eb; color: #ffffff"
+          >
+            + Nuevo técnico
+          </a>
+          <a href="/panel" class="btn-volver">Volver</a>
+        </div>
+      </div>
+
+      <div class="tabla-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Nombre</th>
+              <th>Tipo</th>
+              <th>Visible en panel</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for tecnico in tecnicos %}
+            <tr>
+              <td>{{ tecnico.id }}</td>
+              <td>{{ tecnico.nombre }}</td>
+              <td>
+                <span
+                  class="badge {{ 'badge-eventual' if tecnico.tipo == 'eventual' else 'badge-normal' }}"
+                >
+                  {{ "Eventual" if tecnico.tipo == "eventual" else "Normal" }}
+                </span>
+              </td>
+              <td>
+                <span
+                  class="badge {{ 'badge-habilitado' if tecnico.habilitado != false else 'badge-deshabilitado' }}"
+                >
+                  {{ "Sí" if tecnico.habilitado != false else "No" }}
+                </span>
+              </td>
+              <td>
+                <a href="/tecnicos/{{ tecnico.id }}/editar" class="btn-editar">
+                  ✏️ Editar
+                </a>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </body>
+</html>

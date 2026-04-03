@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Mi perfil</title>
+  </head>
+  <body>
+    <h2>Mi perfil</h2>
+
+    {% if request.args.get('ok') %}
+    <div
+      style="
+        margin-top: 10px;
+        padding: 10px;
+        background: #d1fae5;
+        color: #065f46;
+        border-radius: 8px;
+      "
+    >
+      Perfil actualizado correctamente
+    </div>
+    {% endif %} {% if request.args.get('error') %}
+    <div
+      style="
+        margin-top: 10px;
+        padding: 10px;
+        background: #fee2e2;
+        color: #991b1b;
+        border-radius: 8px;
+      "
+    >
+      {{ request.args.get('error') }}
+    </div>
+    {% endif %}
+
+    <form method="POST" action="/mi-perfil/actualizar">
+      <div>
+        <label>Usuario</label><br />
+        <input type="text" value="{{ usuario.usuario }}" disabled />
+      </div>
+
+      <div>
+        <label>Nombre</label><br />
+        <input
+          type="text"
+          name="nombre"
+          value="{{ usuario.nombre }}"
+          required
+        />
+      </div>
+
+      <hr style="margin: 18px 0" />
+
+      <div>
+        <label>Clave actual</label><br />
+        <input
+          type="password"
+          name="clave_actual"
+          placeholder="Escribe tu clave actual"
+        />
+      </div>
+
+      <div style="margin-top: 12px">
+        <label>Nueva clave</label><br />
+        <input
+          type="password"
+          name="clave_nueva"
+          placeholder="Escribe la nueva clave"
+        />
+      </div>
+
+      <div style="margin-top: 12px">
+        <label>Confirmar nueva clave</label><br />
+        <input
+          type="password"
+          name="clave_confirmacion"
+          placeholder="Repite la nueva clave"
+        />
+      </div>
+
+      <br />
+
+      <button type="submit">Guardar cambios</button>
+    </form>
+
+    <br />
+
+    <a href="/panel">Volver</a>
+  </body>
+</html>

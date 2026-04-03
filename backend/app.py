@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import os
 import firebase_admin
 from firebase_admin import credentials, firestore
-
+from werkzeug.security import generate_password_hash, check_password_hash
 
 APP_ENV = os.environ.get("APP_ENV", "test").strip().lower()
 
@@ -80,58 +80,6 @@ def limpiar_contexto_tecnico(tecnico):
     tecnico["interno_solicitante"] = None
 
 
-usuarios = [
-    {
-        "id": 1,
-        "usuario": "mario",
-        "clave": "1234",
-        "nombre": "Mario",
-        "es_admin": True,
-        "puede_gestionar": True,
-    },
-    {
-        "id": 2,
-        "usuario": "camila",
-        "clave": "1234",
-        "nombre": "Camila",
-        "es_admin": False,
-        "puede_gestionar": False,
-    },
-    {
-        "id": 3,
-        "usuario": "genesis",
-        "clave": "1234",
-        "nombre": "Génesis",
-        "es_admin": False,
-        "puede_gestionar": False,
-    },
-    {
-        "id": 4,
-        "usuario": "vanesa",
-        "clave": "1234",
-        "nombre": "Vanesa",
-        "es_admin": False,
-        "puede_gestionar": False,
-    },
-    {
-        "id": 5,
-        "usuario": "yesica",
-        "clave": "1234",
-        "nombre": "Yesica",
-        "es_admin": False,
-        "puede_gestionar": False,
-    },
-    {
-        "id": 6,
-        "usuario": "darling",
-        "clave": "1234",
-        "nombre": "Darling",
-        "es_admin": False,
-        "puede_gestionar": False,
-    },
-]
-
-
 def obtener_batuta_usuario_id():
     doc = db.collection("config").document("batuta").get()
     if not doc.exists:
@@ -169,8 +117,8 @@ def login():
     docs = (
         db.collection("usuarios")
         .where("usuario", "==", usuario_ingresado)
-        .where("clave", "==", clave_ingresada)
         .where("activo", "==", True)
+        .limit(1)
         .stream()
     )
 
@@ -179,6 +127,11 @@ def login():
         break
 
     if not usuario_encontrado:
+        return render_template("login.html", error="Usuario o clave incorrectos")
+
+    clave_guardada = usuario_encontrado.get("clave", "")
+
+    if not check_password_hash(clave_guardada, clave_ingresada):
         return render_template("login.html", error="Usuario o clave incorrectos")
 
     session["usuario_id"] = usuario_encontrado["id"]
@@ -230,7 +183,6 @@ def soltar_batuta():
         return redirect(url_for("login"))
 
     usuario_id = session.get("usuario_id")
-    es_admin = session.get("es_admin", False)
 
     # Si no tiene la batuta, no hace nada
     if not usuario_tiene_batuta():
@@ -265,7 +217,12 @@ def transferir_batuta():
     usuario_actual = session.get("usuario_id")
     es_admin = session.get("es_admin", False)
 
-    nuevo_usuario_id = int(request.form.get("usuario_id"))
+    usuario_id_str = request.form.get("usuario_id")
+
+    if not usuario_id_str or not usuario_id_str.isdigit():
+        return redirect(url_for("panel"))
+
+    nuevo_usuario_id = int(usuario_id_str)
 
     batuta_actual = obtener_batuta_usuario_id()
 
@@ -349,6 +306,531 @@ def reportes():
         return redirect(url_for("panel"))
 
     return render_template("reportes.html")
+
+
+@app.route("/usuarios")
+def usuarios_page():
+    if not session.get("usuario_id"):
+        return redirect(url_for("login"))
+
+    if not session.get("es_admin", False):
+        return redirect(url_for("panel"))
+
+    docs = db.collection("usuarios").order_by("id").stream()
+
+    usuarios = []
+    for doc in docs:
+        data = doc.to_dict() or {}
+        usuarios.append(data)
+
+    return render_template(
+        "usuarios.html",
+        usuarios=usuarios,
+        ok=(request.args.get("ok") or "").strip(),
+    )
+
+
+@app.route("/mi-perfil")
+def mi_perfil():
+    if not session.get("usuario_id"):
+        return redirect(url_for("login"))
+
+    usuario_id = session.get("usuario_id")
+
+    docs = db.collection("usuarios").where("id", "==", usuario_id).limit(1).stream()
+
+    usuario = None
+    for doc in docs:
+        usuario = doc.to_dict() or {}
+        break
+
+    if not usuario:
+        return redirect(url_for("panel"))
+
+    return render_template("mi_perfil.html", usuario=usuario)
+
+
+@app.route("/mi-perfil/actualizar", methods=["POST"])
+def actualizar_mi_perfil():
+    if not session.get("usuario_id"):
+        return redirect(url_for("login"))
+
+    usuario_id = session.get("usuario_id")
+    nombre = (request.form.get("nombre") or "").strip()
+    clave_actual = (request.form.get("clave_actual") or "").strip()
+    clave_nueva = (request.form.get("clave_nueva") or "").strip()
+    clave_confirmacion = (request.form.get("clave_confirmacion") or "").strip()
+
+    if not nombre:
+        return redirect(url_for("mi_perfil", error="El nombre es obligatorio"))
+
+    docs = db.collection("usuarios").where("id", "==", usuario_id).limit(1).stream()
+
+    usuario_doc = None
+    usuario_data = None
+
+    for doc in docs:
+        usuario_doc = doc
+        usuario_data = doc.to_dict() or {}
+        break
+
+    if not usuario_doc:
+        return redirect(url_for("panel"))
+
+    update_data = {
+        "nombre": nombre,
+    }
+
+    quiere_cambiar_clave = clave_actual or clave_nueva or clave_confirmacion
+
+    if quiere_cambiar_clave:
+        if not clave_actual or not clave_nueva or not clave_confirmacion:
+            return redirect(
+                url_for(
+                    "mi_perfil",
+                    error="Debes completar clave actual, nueva clave y confirmación",
+                )
+            )
+
+        clave_guardada = usuario_data.get("clave", "")
+
+        if not check_password_hash(clave_guardada, clave_actual):
+            return redirect(url_for("mi_perfil", error="La clave actual es incorrecta"))
+
+        if clave_nueva != clave_confirmacion:
+            return redirect(
+                url_for(
+                    "mi_perfil", error="La nueva clave y su confirmación no coinciden"
+                )
+            )
+
+        update_data["clave"] = generate_password_hash(clave_nueva)
+
+    usuario_doc.reference.update(update_data)
+
+    session["usuario_nombre"] = nombre
+
+    return redirect(url_for("mi_perfil", ok=1))
+
+
+@app.route("/usuarios/<int:usuario_id>/editar")
+def editar_usuario(usuario_id):
+    if not session.get("usuario_id"):
+        return redirect(url_for("login"))
+
+    if not session.get("es_admin", False):
+        return redirect(url_for("panel"))
+
+    docs = db.collection("usuarios").where("id", "==", usuario_id).limit(1).stream()
+
+    usuario = None
+    for doc in docs:
+        usuario = doc.to_dict() or {}
+        break
+
+    if not usuario:
+        return redirect(url_for("usuarios_page"))
+
+    return render_template("editar_usuario.html", usuario=usuario)
+
+
+@app.route("/usuarios/<int:usuario_id>/actualizar", methods=["POST"])
+def actualizar_usuario_admin(usuario_id):
+    if not session.get("usuario_id"):
+        return redirect(url_for("login"))
+
+    if not session.get("es_admin", False):
+        return redirect(url_for("panel"))
+
+    nombre = (request.form.get("nombre") or "").strip()
+    clave = (request.form.get("clave") or "").strip()
+
+    if not nombre:
+        return redirect(url_for("editar_usuario", usuario_id=usuario_id))
+
+    docs = db.collection("usuarios").where("id", "==", usuario_id).limit(1).stream()
+
+    usuario_doc = None
+
+    for doc in docs:
+        usuario_doc = doc
+        break
+
+    if not usuario_doc:
+        return redirect(url_for("usuarios_page", ok="actualizado"))
+
+    nuevo_es_admin = "es_admin" in request.form
+    nuevo_puede_gestionar = "puede_gestionar" in request.form
+    nuevo_activo = "activo" in request.form
+
+    if usuario_id == session.get("usuario_id"):
+        nuevo_es_admin = True
+        nuevo_puede_gestionar = True
+        nuevo_activo = True
+
+    update_data = {
+        "nombre": nombre,
+        "es_admin": nuevo_es_admin,
+        "puede_gestionar": nuevo_puede_gestionar,
+        "activo": nuevo_activo,
+    }
+    # 🔐 PROTECCIÓN: evitar que el usuario se quite permisos a sí mismo
+
+    if usuario_id == session.get("usuario_id"):
+        update_data["es_admin"] = True
+        update_data["puede_gestionar"] = True
+        update_data["activo"] = True
+
+    if clave:
+        update_data["clave"] = generate_password_hash(clave)
+
+    usuario_doc.reference.update(update_data)
+
+    if usuario_id == session.get("usuario_id"):
+        session["usuario_nombre"] = nombre
+        session["es_admin"] = nuevo_es_admin
+        session["puede_gestionar"] = nuevo_puede_gestionar
+
+    return redirect(url_for("usuarios_page", ok="actualizado"))
+
+
+@app.route("/usuarios/nuevo", methods=["GET", "POST"])
+def crear_usuario():
+    if not session.get("usuario_id"):
+        return redirect(url_for("login"))
+
+    if not session.get("es_admin", False):
+        return redirect(url_for("panel"))
+
+    if request.method == "GET":
+        return render_template("nuevo_usuario.html")
+
+    usuario = (request.form.get("usuario") or "").strip().lower()
+    nombre = (request.form.get("nombre") or "").strip()
+    clave = (request.form.get("clave") or "").strip()
+
+    if not usuario or not nombre or not clave:
+        return render_template(
+            "nuevo_usuario.html",
+            error="Debes completar usuario, nombre y clave",
+        )
+
+    docs = db.collection("usuarios").where("usuario", "==", usuario).limit(1).stream()
+
+    usuario_existente = None
+    for doc in docs:
+        usuario_existente = doc
+        break
+
+    if usuario_existente:
+        return render_template(
+            "nuevo_usuario.html",
+            error="Ese usuario ya existe",
+        )
+
+    docs_ids = (
+        db.collection("usuarios")
+        .order_by("id", direction=firestore.Query.DESCENDING)
+        .limit(1)
+        .stream()
+    )
+
+    ultimo_id = 0
+    for doc in docs_ids:
+        data = doc.to_dict() or {}
+        ultimo_id = data.get("id", 0)
+        break
+
+    nuevo_id = ultimo_id + 1
+
+    nuevo_usuario = {
+        "id": nuevo_id,
+        "usuario": usuario,
+        "nombre": nombre,
+        "clave": generate_password_hash(clave),
+        "es_admin": "es_admin" in request.form,
+        "puede_gestionar": "puede_gestionar" in request.form,
+        "activo": "activo" in request.form,
+    }
+
+    db.collection("usuarios").document(str(nuevo_id)).set(nuevo_usuario)
+
+    return redirect(url_for("usuarios_page"))
+
+
+@app.route("/usuarios/<int:usuario_id>/resetear-clave", methods=["POST"])
+def resetear_clave_usuario(usuario_id):
+    if not session.get("usuario_id"):
+        return redirect(url_for("login"))
+
+    if not session.get("es_admin", False):
+        return redirect(url_for("panel"))
+        # 🔐 Evitar que el admin se resetee su propia clave
+    if usuario_id == session.get("usuario_id"):
+        return redirect(url_for("usuarios_page"))
+
+    docs = db.collection("usuarios").where("id", "==", usuario_id).limit(1).stream()
+
+    usuario_doc = None
+    for doc in docs:
+        usuario_doc = doc
+        break
+
+    if not usuario_doc:
+        return redirect(url_for("usuarios_page"))
+
+    nueva_clave = generate_password_hash("1234")
+    usuario_doc.reference.update({"clave": nueva_clave})
+
+    return redirect(url_for("usuarios_page", ok="clave_reseteada"))
+
+
+@app.route("/tecnicos")
+def tecnicos_page():
+    if not session.get("usuario_id"):
+        return redirect(url_for("login"))
+
+    docs = db.collection("tecnicos").order_by("id").stream()
+    tecnicos = []
+
+    for doc in docs:
+        data = doc.to_dict() or {}
+        tecnicos.append(data)
+
+    return render_template(
+        "tecnicos.html", tecnicos=tecnicos, ok=request.args.get("ok")
+    )
+
+
+@app.route("/tecnicos/nuevo", methods=["GET", "POST"])
+def nuevo_tecnico():
+    if not session.get("usuario_id"):
+        return redirect(url_for("login"))
+
+    if not session.get("es_admin", False):
+        return redirect(url_for("panel"))
+
+    if request.method == "POST":
+        nombre = (request.form.get("nombre") or "").strip()
+        tipo = (request.form.get("tipo") or "").strip().lower()
+
+        if not nombre:
+            return render_template(
+                "nuevo_tecnico.html",
+                error="Debes ingresar el nombre.",
+            )
+
+        if tipo not in ["normal", "eventual"]:
+            return render_template(
+                "nuevo_tecnico.html",
+                error="Debes seleccionar un tipo válido.",
+            )
+
+        docs = db.collection("tecnicos").stream()
+        ultimo_id = 0
+
+        for doc in docs:
+            data = doc.to_dict() or {}
+            tecnico_id = data.get("id", 0)
+            if isinstance(tecnico_id, int) and tecnico_id > ultimo_id:
+                ultimo_id = tecnico_id
+
+        nuevo_id = ultimo_id + 1
+
+        db.collection("tecnicos").add(
+            {
+                "id": nuevo_id,
+                "nombre": nombre,
+                "tipo": tipo,
+                "habilitado": True,
+                "activo": True,
+                "estado": "libre",
+                "trabajo_id": None,
+                "almuerzo_desde": None,
+                "almuerzo_hasta": None,
+                "almuerzo_fecha": None,
+                "almuerzo_registrado": False,
+                "dia_libre": False,
+            }
+        )
+
+        return redirect(url_for("tecnicos_page", ok="creado"))
+
+    return render_template("nuevo_tecnico.html")
+
+
+@app.route("/tecnicos/<int:tecnico_id>/editar")
+def editar_tecnico(tecnico_id):
+    if not session.get("usuario_id"):
+        return redirect(url_for("login"))
+
+    docs = db.collection("tecnicos").where("id", "==", tecnico_id).limit(1).stream()
+
+    tecnico = None
+    for doc in docs:
+        tecnico = doc.to_dict()
+        break
+
+    if not tecnico:
+        return redirect(url_for("tecnicos_page"))
+
+    return render_template("editar_tecnico.html", tecnico=tecnico)
+
+
+@app.route("/tecnicos/<int:tecnico_id>/actualizar", methods=["POST"])
+def actualizar_tecnico(tecnico_id):
+    if not session.get("usuario_id"):
+        return redirect(url_for("login"))
+
+    if not session.get("es_admin", False):
+        return redirect(url_for("panel"))
+
+    nombre = (request.form.get("nombre") or "").strip()
+    tipo = (request.form.get("tipo") or "").strip().lower()
+
+    if not nombre:
+        return redirect(url_for("editar_tecnico", tecnico_id=tecnico_id))
+
+    if tipo not in ["normal", "eventual"]:
+        return redirect(url_for("editar_tecnico", tecnico_id=tecnico_id))
+
+    docs = db.collection("tecnicos").where("id", "==", tecnico_id).limit(1).stream()
+
+    tecnico_doc = None
+    tecnico_data = None
+
+    for doc in docs:
+        tecnico_doc = doc
+        tecnico_data = doc.to_dict() or {}
+        break
+
+    if not tecnico_doc:
+        return redirect(url_for("tecnicos_page"))
+
+    estado_actual = (tecnico_data.get("estado") or "").strip().lower()
+    trabajo_id_actual = tecnico_data.get("trabajo_id")
+    habilitado_actual = tecnico_data.get("habilitado", True)
+
+    tecnico_en_operacion = (
+        estado_actual in ["trabajando", "almuerzo"] or trabajo_id_actual is not None
+    )
+
+    if tecnico_en_operacion:
+        habilitado = habilitado_actual
+    else:
+        habilitado = "habilitado" in request.form
+
+    update_data = {
+        "nombre": nombre,
+        "tipo": tipo,
+        "habilitado": habilitado,
+    }
+
+    tecnico_doc.reference.update(update_data)
+
+    return redirect(url_for("tecnicos_page", ok="actualizado"))
+
+
+@app.route("/vendedores")
+def vendedores_page():
+    if not session.get("usuario_id"):
+        return redirect(url_for("login"))
+
+    docs = db.collection("vendedores").order_by("id").stream()
+    vendedores = []
+
+    for doc in docs:
+        data = doc.to_dict() or {}
+        vendedores.append(data)
+
+    return render_template(
+        "vendedores.html", vendedores=vendedores, ok=request.args.get("ok")
+    )
+
+
+@app.route("/vendedores/nuevo", methods=["GET", "POST"])
+def nuevo_vendedor():
+    if not session.get("usuario_id"):
+        return redirect(url_for("login"))
+
+    if not session.get("es_admin", False):
+        return redirect(url_for("panel"))
+
+    if request.method == "POST":
+        nombre = (request.form.get("nombre") or "").strip()
+
+        if not nombre:
+            return render_template(
+                "nuevo_vendedor.html",
+                error="Debes ingresar el nombre.",
+            )
+
+        docs = db.collection("vendedores").stream()
+        ultimo_id = 0
+
+        for doc in docs:
+            data = doc.to_dict() or {}
+            vendedor_id = data.get("id", 0)
+            if isinstance(vendedor_id, int) and vendedor_id > ultimo_id:
+                ultimo_id = vendedor_id
+
+        nuevo_id = ultimo_id + 1
+
+        db.collection("vendedores").add(
+            {"id": nuevo_id, "nombre": nombre, "activo": True}
+        )
+
+        return redirect(url_for("vendedores_page", ok="creado"))
+
+    return render_template("nuevo_vendedor.html")
+
+
+@app.route("/vendedores/<int:vendedor_id>/editar")
+def editar_vendedor(vendedor_id):
+    if not session.get("usuario_id"):
+        return redirect(url_for("login"))
+
+    docs = db.collection("vendedores").where("id", "==", vendedor_id).limit(1).stream()
+
+    vendedor = None
+    for doc in docs:
+        vendedor = doc.to_dict()
+        break
+
+    if not vendedor:
+        return redirect(url_for("vendedores_page"))
+
+    return render_template("editar_vendedor.html", vendedor=vendedor)
+
+
+@app.route("/vendedores/<int:vendedor_id>/actualizar", methods=["POST"])
+def actualizar_vendedor(vendedor_id):
+    if not session.get("usuario_id"):
+        return redirect(url_for("login"))
+
+    if not session.get("es_admin", False):
+        return redirect(url_for("panel"))
+
+    nombre = (request.form.get("nombre") or "").strip()
+    activo = "activo" in request.form
+
+    if not nombre:
+        return redirect(url_for("editar_vendedor", vendedor_id=vendedor_id))
+
+    docs = db.collection("vendedores").where("id", "==", vendedor_id).limit(1).stream()
+
+    vendedor_doc = None
+
+    for doc in docs:
+        vendedor_doc = doc
+        break
+
+    if not vendedor_doc:
+        return redirect(url_for("vendedores_page"))
+
+    vendedor_doc.reference.update({"nombre": nombre, "activo": activo})
+
+    return redirect(url_for("vendedores_page", ok="actualizado"))
 
 
 @app.route("/api/resumen")
