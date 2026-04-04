@@ -189,6 +189,21 @@
           <div class="check-group">
             <input
               type="checkbox"
+              id="puede_crear_trabajos"
+              name="puede_crear_trabajos"
+              {%
+              if
+              usuario.puede_crear_trabajos
+              %}checked{%
+              endif
+              %}
+            />
+            <label for="puede_crear_trabajos">Puede crear trabajos</label>
+          </div>
+
+          <div class="check-group">
+            <input
+              type="checkbox"
               id="activo"
               name="activo"
               {%

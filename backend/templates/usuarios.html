@@ -247,6 +247,7 @@
               <th>Nombre</th>
               <th>Admin</th>
               <th>Gestiona</th>
+              <th>Crea trabajos</th>
               <th>Estado</th>
               <th>Acciones</th>
             </tr>
@@ -271,6 +272,15 @@
                   {{ "Sí" if usuario.puede_gestionar else "No" }}
                 </span>
               </td>
+
+              <td>
+                <span
+                  class="badge {{ 'badge-si' if usuario.puede_crear_trabajos else 'badge-no' }}"
+                >
+                  {{ "Sí" if usuario.puede_crear_trabajos else "No" }}
+                </span>
+              </td>
+
               <td>
                 <span
                   class="badge {{ 'badge-activo' if usuario.activo else 'badge-inactivo' }}"

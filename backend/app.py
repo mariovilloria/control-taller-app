@@ -99,6 +99,26 @@ def usuario_tiene_batuta():
     return usuario_id is not None and batuta_usuario_id == usuario_id
 
 
+def es_admin():
+    return session.get("es_admin", False)
+
+
+def tiene_batuta():
+    return es_admin() or usuario_tiene_batuta()
+
+
+def usuario_puede_gestionar():
+    return es_admin() or usuario_tiene_batuta()
+
+
+def usuario_puede_crear_trabajos():
+    return (
+        es_admin()
+        or usuario_tiene_batuta()
+        or session.get("puede_crear_trabajos", False)
+    )
+
+
 @app.route("/")
 def home():
     return redirect(url_for("login"))
@@ -136,8 +156,11 @@ def login():
 
     session["usuario_id"] = usuario_encontrado["id"]
     session["usuario_nombre"] = usuario_encontrado["nombre"]
-    session["es_admin"] = usuario_encontrado["es_admin"]
-    session["puede_gestionar"] = usuario_encontrado["puede_gestionar"]
+    session["es_admin"] = usuario_encontrado.get("es_admin", False)
+    session["puede_gestionar"] = usuario_encontrado.get("puede_gestionar", False)
+    session["puede_crear_trabajos"] = usuario_encontrado.get(
+        "puede_crear_trabajos", False
+    )
 
     return redirect(url_for("panel"))
 
@@ -150,6 +173,9 @@ def logout():
 
 @app.route("/batuta/estado")
 def estado_batuta():
+    if not session.get("usuario_id"):
+        return jsonify({"error": "No autenticado"}), 401
+
     return jsonify({"batuta_usuario_id": obtener_batuta_usuario_id()})
 
 
@@ -160,17 +186,17 @@ def tomar_batuta():
     if not usuario_id:
         return redirect(url_for("login"))
 
-    es_admin = session.get("es_admin", False)
+    admin_actual = es_admin()
 
     batuta_actual = obtener_batuta_usuario_id()
 
     # ADMIN puede tomar siempre
-    if es_admin:
+    if admin_actual:
         guardar_batuta_usuario_id(usuario_id)
         return redirect(url_for("panel"))
 
-    # Usuario normal solo si está libre
-    if batuta_actual is None:
+    # Usuario normal: solo puede tomarla si está libre y tiene permiso de gestión
+    if batuta_actual is None and session.get("puede_gestionar", False):
         guardar_batuta_usuario_id(usuario_id)
         return redirect(url_for("panel"))
 
@@ -184,8 +210,8 @@ def soltar_batuta():
 
     usuario_id = session.get("usuario_id")
 
-    # Si no tiene la batuta, no hace nada
-    if not usuario_tiene_batuta():
+    # Si no tiene control de batuta, no hace nada
+    if not tiene_batuta():
         return redirect(url_for("panel"))
 
     # 🔥 Buscar al admin (dueño)
@@ -215,7 +241,7 @@ def transferir_batuta():
         return redirect(url_for("login"))
 
     usuario_actual = session.get("usuario_id")
-    es_admin = session.get("es_admin", False)
+    admin_actual = es_admin()
 
     usuario_id_str = request.form.get("usuario_id")
 
@@ -227,7 +253,7 @@ def transferir_batuta():
     batuta_actual = obtener_batuta_usuario_id()
 
     # Solo el admin o quien tiene la batuta puede transferir
-    if not es_admin and batuta_actual != usuario_actual:
+    if not admin_actual and batuta_actual != usuario_actual:
         return redirect(url_for("panel"))
 
     # Buscar el usuario destino en Firestore
@@ -246,11 +272,15 @@ def transferir_batuta():
     if not usuario_destino:
         return redirect(url_for("panel"))
 
-    # Validar que pueda gestionar
+    if not usuario_destino.get("activo", False):
+        return redirect(url_for("panel"))
+
     if not usuario_destino.get("puede_gestionar", False):
         return redirect(url_for("panel"))
 
-    # Transferir batuta
+    if usuario_destino.get("id") != nuevo_usuario_id:
+        return redirect(url_for("panel"))
+
     guardar_batuta_usuario_id(nuevo_usuario_id)
 
     return redirect(url_for("panel"))
@@ -285,9 +315,10 @@ def panel():
         "index.html",
         usuario_nombre=session.get("usuario_nombre"),
         es_admin=session.get("es_admin"),
-        puede_gestionar=session.get("puede_gestionar"),
+        puede_gestionar=usuario_puede_gestionar(),
+        puede_crear_trabajos=usuario_puede_crear_trabajos(),
         usuario_id=usuario_id,
-        tiene_batuta=(batuta_usuario_id == usuario_id) or session.get("es_admin"),
+        tiene_batuta=tiene_batuta(),
         batuta_usuario_id=batuta_usuario_id,
         batuta_nombre=batuta_nombre,
         usuarios=usuarios,
@@ -461,17 +492,23 @@ def actualizar_usuario_admin(usuario_id):
 
     nuevo_es_admin = "es_admin" in request.form
     nuevo_puede_gestionar = "puede_gestionar" in request.form
+    nuevo_puede_crear_trabajos = "puede_crear_trabajos" in request.form
     nuevo_activo = "activo" in request.form
+    if nuevo_es_admin:
+        nuevo_puede_gestionar = True
+        nuevo_puede_crear_trabajos = True
 
     if usuario_id == session.get("usuario_id"):
         nuevo_es_admin = True
         nuevo_puede_gestionar = True
+        nuevo_puede_crear_trabajos = True
         nuevo_activo = True
 
     update_data = {
         "nombre": nombre,
         "es_admin": nuevo_es_admin,
         "puede_gestionar": nuevo_puede_gestionar,
+        "puede_crear_trabajos": nuevo_puede_crear_trabajos,
         "activo": nuevo_activo,
     }
     # 🔐 PROTECCIÓN: evitar que el usuario se quite permisos a sí mismo
@@ -479,17 +516,41 @@ def actualizar_usuario_admin(usuario_id):
     if usuario_id == session.get("usuario_id"):
         update_data["es_admin"] = True
         update_data["puede_gestionar"] = True
+        update_data["puede_crear_trabajos"] = True
         update_data["activo"] = True
 
     if clave:
         update_data["clave"] = generate_password_hash(clave)
 
     usuario_doc.reference.update(update_data)
+    batuta_actual = obtener_batuta_usuario_id()
+
+    if batuta_actual == usuario_id and (
+        not update_data["activo"]
+        or (not update_data["es_admin"] and not update_data["puede_gestionar"])
+    ):
+        docs_admin = (
+            db.collection("usuarios")
+            .where("es_admin", "==", True)
+            .where("activo", "==", True)
+            .limit(1)
+            .stream()
+        )
+
+        admin_id = None
+        for doc_admin in docs_admin:
+            admin_data = doc_admin.to_dict() or {}
+            admin_id = admin_data.get("id")
+            break
+
+        if admin_id is not None:
+            guardar_batuta_usuario_id(admin_id)
 
     if usuario_id == session.get("usuario_id"):
-        session["usuario_nombre"] = nombre
-        session["es_admin"] = nuevo_es_admin
-        session["puede_gestionar"] = nuevo_puede_gestionar
+        session["usuario_nombre"] = update_data["nombre"]
+        session["es_admin"] = update_data["es_admin"]
+        session["puede_gestionar"] = update_data["puede_gestionar"]
+        session["puede_crear_trabajos"] = update_data["puede_crear_trabajos"]
 
     return redirect(url_for("usuarios_page", ok="actualizado"))
 
@@ -542,15 +603,24 @@ def crear_usuario():
         break
 
     nuevo_id = ultimo_id + 1
+    nuevo_es_admin = "es_admin" in request.form
+    nuevo_puede_gestionar = "puede_gestionar" in request.form
+    nuevo_puede_crear_trabajos = "puede_crear_trabajos" in request.form
+    nuevo_activo = "activo" in request.form
+
+    if nuevo_es_admin:
+        nuevo_puede_gestionar = True
+        nuevo_puede_crear_trabajos = True
 
     nuevo_usuario = {
         "id": nuevo_id,
         "usuario": usuario,
         "nombre": nombre,
         "clave": generate_password_hash(clave),
-        "es_admin": "es_admin" in request.form,
-        "puede_gestionar": "puede_gestionar" in request.form,
-        "activo": "activo" in request.form,
+        "es_admin": nuevo_es_admin,
+        "puede_gestionar": nuevo_puede_gestionar,
+        "puede_crear_trabajos": nuevo_puede_crear_trabajos,
+        "activo": nuevo_activo,
     }
 
     db.collection("usuarios").document(str(nuevo_id)).set(nuevo_usuario)
@@ -835,6 +905,8 @@ def actualizar_vendedor(vendedor_id):
 
 @app.route("/api/resumen")
 def api_resumen():
+    if not session.get("usuario_id"):
+        return jsonify({"error": "No autenticado"}), 401
     fecha = (request.args.get("fecha") or "").strip()
 
     trabajos_query = db.collection("trabajos").select(
@@ -875,6 +947,11 @@ def api_resumen():
 
 @app.route("/trabajos/<int:trabajo_id>/editar", methods=["POST"])
 def editar_trabajo(trabajo_id):
+    if not session.get("usuario_id"):
+        return jsonify({"error": "No autenticado"}), 401
+
+    if not usuario_puede_gestionar():
+        return jsonify({"error": "No tienes permisos para gestionar trabajos"}), 403
     data = request.json or {}
     nueva_descripcion = (data.get("descripcion") or "").strip()
     nuevo_origen = (data.get("origen") or "").strip().lower()
