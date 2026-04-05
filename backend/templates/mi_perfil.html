@@ -2,89 +2,257 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Mi perfil</title>
-  </head>
-  <body>
-    <h2>Mi perfil</h2>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
 
-    {% if request.args.get('ok') %}
-    <div
-      style="
-        margin-top: 10px;
-        padding: 10px;
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: #f3f6fb;
+        color: #1f2937;
+      }
+
+      .perfil-page {
+        min-height: 100vh;
+        padding: 24px 16px;
+        display: flex;
+        justify-content: center;
+        align-items: flex-start;
+      }
+
+      .perfil-card {
+        width: 100%;
+        max-width: 460px;
+        background: #ffffff;
+        border-radius: 18px;
+        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+        padding: 24px 20px;
+      }
+
+      .perfil-titulo {
+        margin: 0 0 20px 0;
+        font-size: 28px;
+        font-weight: 700;
+        color: #111827;
+      }
+
+      .perfil-alerta {
+        margin-bottom: 16px;
+        padding: 12px 14px;
+        border-radius: 12px;
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .perfil-alerta.ok {
         background: #d1fae5;
         color: #065f46;
-        border-radius: 8px;
-      "
-    >
-      Perfil actualizado correctamente
-    </div>
-    {% endif %} {% if request.args.get('error') %}
-    <div
-      style="
-        margin-top: 10px;
-        padding: 10px;
+      }
+
+      .perfil-alerta.error {
         background: #fee2e2;
         color: #991b1b;
-        border-radius: 8px;
-      "
-    >
-      {{ request.args.get('error') }}
+      }
+
+      .perfil-form {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+      }
+
+      .perfil-seccion {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .perfil-subtitulo {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 700;
+        color: #374151;
+      }
+
+      .perfil-divider {
+        border: none;
+        height: 1px;
+        background: #e5e7eb;
+        margin: 4px 0;
+      }
+
+      .perfil-campo {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .perfil-campo label {
+        font-size: 14px;
+        font-weight: 600;
+        color: #374151;
+      }
+
+      .perfil-campo input {
+        width: 100%;
+        min-height: 44px;
+        border: 1px solid #d1d5db;
+        border-radius: 12px;
+        padding: 10px 12px;
+        font-size: 15px;
+        outline: none;
+        transition:
+          border-color 0.18s ease,
+          box-shadow 0.18s ease,
+          background 0.18s ease;
+      }
+
+      .perfil-campo input:focus {
+        border-color: #2563eb;
+        box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+      }
+
+      .perfil-campo input[disabled] {
+        background: #f3f4f6;
+        color: #6b7280;
+        cursor: not-allowed;
+      }
+
+      .perfil-acciones {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin-top: 6px;
+      }
+
+      .btn-guardar {
+        width: 100%;
+        min-height: 46px;
+        border: none;
+        border-radius: 12px;
+        background: #2563eb;
+        color: #ffffff;
+        font-size: 15px;
+        font-weight: 700;
+        cursor: pointer;
+        transition:
+          background 0.18s ease,
+          transform 0.18s ease;
+      }
+
+      .btn-guardar:hover {
+        background: #1d4ed8;
+        transform: translateY(-1px);
+      }
+
+      .btn-volver {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 44px;
+        border-radius: 12px;
+        text-decoration: none;
+        background: #f3f4f6;
+        color: #111827;
+        font-size: 15px;
+        font-weight: 600;
+        transition:
+          background 0.18s ease,
+          transform 0.18s ease;
+      }
+
+      .btn-volver:hover {
+        background: #e5e7eb;
+        transform: translateY(-1px);
+      }
+
+      @media (max-width: 480px) {
+        .perfil-page {
+          padding: 16px 12px;
+        }
+
+        .perfil-card {
+          padding: 20px 16px;
+          border-radius: 16px;
+        }
+
+        .perfil-titulo {
+          font-size: 24px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="perfil-page">
+      <div class="perfil-card">
+        <h2 class="perfil-titulo">Mi perfil</h2>
+
+        {% if request.args.get('ok') %}
+        <div class="perfil-alerta ok">Perfil actualizado correctamente</div>
+        {% endif %} {% if request.args.get('error') %}
+        <div class="perfil-alerta error">{{ request.args.get('error') }}</div>
+        {% endif %}
+
+        <form method="POST" action="/mi-perfil/actualizar" class="perfil-form">
+          <div class="perfil-seccion">
+            <div class="perfil-campo">
+              <label>Usuario</label>
+              <input type="text" value="{{ usuario.usuario }}" disabled />
+            </div>
+
+            <div class="perfil-campo">
+              <label>Nombre</label>
+              <input
+                type="text"
+                name="nombre"
+                value="{{ usuario.nombre }}"
+                required
+              />
+            </div>
+          </div>
+
+          <hr class="perfil-divider" />
+
+          <div class="perfil-seccion">
+            <p class="perfil-subtitulo">Cambiar contraseña</p>
+
+            <div class="perfil-campo">
+              <label>Clave actual</label>
+              <input
+                type="password"
+                name="clave_actual"
+                placeholder="Escribe tu clave actual"
+              />
+            </div>
+
+            <div class="perfil-campo">
+              <label>Nueva clave</label>
+              <input
+                type="password"
+                name="clave_nueva"
+                placeholder="Escribe la nueva clave"
+              />
+            </div>
+
+            <div class="perfil-campo">
+              <label>Confirmar nueva clave</label>
+              <input
+                type="password"
+                name="clave_confirmacion"
+                placeholder="Repite la nueva clave"
+              />
+            </div>
+          </div>
+
+          <div class="perfil-acciones">
+            <button type="submit" class="btn-guardar">Guardar cambios</button>
+            <a href="/panel" class="btn-volver">Volver</a>
+          </div>
+        </form>
+      </div>
     </div>
-    {% endif %}
-
-    <form method="POST" action="/mi-perfil/actualizar">
-      <div>
-        <label>Usuario</label><br />
-        <input type="text" value="{{ usuario.usuario }}" disabled />
-      </div>
-
-      <div>
-        <label>Nombre</label><br />
-        <input
-          type="text"
-          name="nombre"
-          value="{{ usuario.nombre }}"
-          required
-        />
-      </div>
-
-      <hr style="margin: 18px 0" />
-
-      <div>
-        <label>Clave actual</label><br />
-        <input
-          type="password"
-          name="clave_actual"
-          placeholder="Escribe tu clave actual"
-        />
-      </div>
-
-      <div style="margin-top: 12px">
-        <label>Nueva clave</label><br />
-        <input
-          type="password"
-          name="clave_nueva"
-          placeholder="Escribe la nueva clave"
-        />
-      </div>
-
-      <div style="margin-top: 12px">
-        <label>Confirmar nueva clave</label><br />
-        <input
-          type="password"
-          name="clave_confirmacion"
-          placeholder="Repite la nueva clave"
-        />
-      </div>
-
-      <br />
-
-      <button type="submit">Guardar cambios</button>
-    </form>
-
-    <br />
-
-    <a href="/panel">Volver</a>
   </body>
 </html>

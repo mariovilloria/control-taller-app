@@ -93,6 +93,45 @@ def guardar_batuta_usuario_id(usuario_id):
     db.collection("config").document("batuta").set({"usuario_id": usuario_id})
 
 
+def obtener_usuario_por_id(usuario_id):
+    if not usuario_id:
+        return None
+
+    docs = db.collection("usuarios").where("id", "==", usuario_id).limit(1).stream()
+
+    for doc in docs:
+        return doc.to_dict() or {}
+
+    return None
+
+
+def obtener_usuario_actual_db():
+    usuario_id = session.get("usuario_id")
+    if not usuario_id:
+        return None
+
+    return obtener_usuario_por_id(usuario_id)
+
+
+def usuario_activo():
+    usuario = obtener_usuario_actual_db()
+    return bool(usuario and usuario.get("activo", False))
+
+
+def es_super_admin():
+    usuario = obtener_usuario_actual_db()
+    return bool(
+        usuario and usuario.get("activo", False) and usuario.get("super_admin", False)
+    )
+
+
+def usuario_objetivo_es_super_admin(usuario_id):
+    usuario = obtener_usuario_por_id(usuario_id)
+    return bool(
+        usuario and usuario.get("activo", False) and usuario.get("super_admin", False)
+    )
+
+
 def usuario_tiene_batuta():
     usuario_id = session.get("usuario_id")
     batuta_usuario_id = obtener_batuta_usuario_id()
@@ -100,7 +139,10 @@ def usuario_tiene_batuta():
 
 
 def es_admin():
-    return session.get("es_admin", False)
+    usuario = obtener_usuario_actual_db()
+    return bool(
+        usuario and usuario.get("activo", False) and usuario.get("es_admin", False)
+    )
 
 
 def tiene_batuta():
@@ -112,11 +154,42 @@ def usuario_puede_gestionar():
 
 
 def usuario_puede_crear_trabajos():
-    return (
-        es_admin()
-        or usuario_tiene_batuta()
-        or session.get("puede_crear_trabajos", False)
+    usuario = obtener_usuario_actual_db()
+    return bool(
+        usuario
+        and usuario.get("activo", False)
+        and (
+            usuario.get("es_admin", False)
+            or usuario_tiene_batuta()
+            or usuario.get("puede_crear_trabajos", False)
+        )
     )
+
+
+def usuario_es_elegible_para_batuta():
+    usuario = obtener_usuario_actual_db()
+    return bool(
+        usuario
+        and usuario.get("activo", False)
+        and (usuario.get("es_admin", False) or usuario.get("puede_gestionar", False))
+    )
+
+
+@app.before_request
+def validar_sesion_activa():
+    rutas_publicas = {"login", "logout", "static"}
+
+    if request.endpoint in rutas_publicas:
+        return None
+
+    if not session.get("usuario_id"):
+        return None
+
+    if not usuario_activo():
+        session.clear()
+        return redirect(url_for("login"))
+
+    return None
 
 
 @app.route("/")
@@ -157,6 +230,7 @@ def login():
     session["usuario_id"] = usuario_encontrado["id"]
     session["usuario_nombre"] = usuario_encontrado["nombre"]
     session["es_admin"] = usuario_encontrado.get("es_admin", False)
+    session["super_admin"] = usuario_encontrado.get("super_admin", False)
     session["puede_gestionar"] = usuario_encontrado.get("puede_gestionar", False)
     session["puede_crear_trabajos"] = usuario_encontrado.get(
         "puede_crear_trabajos", False
@@ -186,17 +260,23 @@ def tomar_batuta():
     if not usuario_id:
         return redirect(url_for("login"))
 
-    admin_actual = es_admin()
-
     batuta_actual = obtener_batuta_usuario_id()
 
-    # ADMIN puede tomar siempre
-    if admin_actual:
+    # 🔥 El super admin puede recuperarla siempre, sin importar quién la tenga
+    if es_super_admin():
         guardar_batuta_usuario_id(usuario_id)
         return redirect(url_for("panel"))
 
-    # Usuario normal: solo puede tomarla si está libre y tiene permiso de gestión
-    if batuta_actual is None and session.get("puede_gestionar", False):
+    # Admin normal puede tomarla solo si no la tiene el super admin
+    if es_admin():
+        if batuta_actual and usuario_objetivo_es_super_admin(batuta_actual):
+            return redirect(url_for("panel"))
+
+        guardar_batuta_usuario_id(usuario_id)
+        return redirect(url_for("panel"))
+
+    # Usuario elegible normal: solo si está libre
+    if batuta_actual is None and usuario_es_elegible_para_batuta():
         guardar_batuta_usuario_id(usuario_id)
         return redirect(url_for("panel"))
 
@@ -210,26 +290,49 @@ def soltar_batuta():
 
     usuario_id = session.get("usuario_id")
 
-    # Si no tiene control de batuta, no hace nada
     if not tiene_batuta():
         return redirect(url_for("panel"))
 
-    # 🔥 Buscar al admin (dueño)
-    docs = (
+    # 🔥 Si quien tiene la batuta es super admin, no se le fuerza a nadie más
+    if usuario_objetivo_es_super_admin(usuario_id):
+        guardar_batuta_usuario_id(usuario_id)
+        return redirect(url_for("panel"))
+
+    # Si no es super admin, buscar primero un super admin activo
+    docs_super = (
+        db.collection("usuarios")
+        .where("super_admin", "==", True)
+        .where("activo", "==", True)
+        .limit(1)
+        .stream()
+    )
+
+    super_admin_id = None
+    for doc in docs_super:
+        data = doc.to_dict() or {}
+        super_admin_id = data.get("id")
+        break
+
+    if super_admin_id is not None:
+        guardar_batuta_usuario_id(super_admin_id)
+        return redirect(url_for("panel"))
+
+    # Si no hay super admin, vuelve a cualquier admin activo
+    docs_admin = (
         db.collection("usuarios")
         .where("es_admin", "==", True)
         .where("activo", "==", True)
+        .limit(1)
         .stream()
     )
 
     admin_id = None
-    for doc in docs:
-        data = doc.to_dict()
+    for doc in docs_admin:
+        data = doc.to_dict() or {}
         admin_id = data.get("id")
         break
 
-    # 🔥 Si encuentra admin, vuelve a él
-    if admin_id:
+    if admin_id is not None:
         guardar_batuta_usuario_id(admin_id)
 
     return redirect(url_for("panel"))
@@ -242,6 +345,7 @@ def transferir_batuta():
 
     usuario_actual = session.get("usuario_id")
     admin_actual = es_admin()
+    super_admin_actual = es_super_admin()
 
     usuario_id_str = request.form.get("usuario_id")
 
@@ -249,40 +353,40 @@ def transferir_batuta():
         return redirect(url_for("panel"))
 
     nuevo_usuario_id = int(usuario_id_str)
-
     batuta_actual = obtener_batuta_usuario_id()
 
-    # Solo el admin o quien tiene la batuta puede transferir
+    # Solo admin o quien tiene la batuta puede transferir
     if not admin_actual and batuta_actual != usuario_actual:
         return redirect(url_for("panel"))
 
-    # Buscar el usuario destino en Firestore
-    docs = (
-        db.collection("usuarios")
-        .where("id", "==", nuevo_usuario_id)
-        .where("activo", "==", True)
-        .stream()
-    )
-
-    usuario_destino = None
-    for doc in docs:
-        usuario_destino = doc.to_dict()
-        break
-
+    # Buscar usuario destino
+    usuario_destino = obtener_usuario_por_id(nuevo_usuario_id)
     if not usuario_destino:
         return redirect(url_for("panel"))
 
     if not usuario_destino.get("activo", False):
         return redirect(url_for("panel"))
 
-    if not usuario_destino.get("puede_gestionar", False):
+    # Solo elegibles (admin o puede_gestionar)
+    if not (
+        usuario_destino.get("es_admin", False)
+        or usuario_destino.get("puede_gestionar", False)
+    ):
         return redirect(url_for("panel"))
 
     if usuario_destino.get("id") != nuevo_usuario_id:
         return redirect(url_for("panel"))
 
-    guardar_batuta_usuario_id(nuevo_usuario_id)
+    # 🔥 Si la batuta la tiene el super admin, nadie salvo el mismo super admin puede moverla
+    if batuta_actual and usuario_objetivo_es_super_admin(batuta_actual):
+        if not super_admin_actual:
+            return redirect(url_for("panel"))
 
+    # 🔥 Nadie puede quitarle la batuta al super admin, salvo él mismo
+    if usuario_objetivo_es_super_admin(batuta_actual) and not super_admin_actual:
+        return redirect(url_for("panel"))
+
+    guardar_batuta_usuario_id(nuevo_usuario_id)
     return redirect(url_for("panel"))
 
 
@@ -314,7 +418,7 @@ def panel():
     return render_template(
         "index.html",
         usuario_nombre=session.get("usuario_nombre"),
-        es_admin=session.get("es_admin"),
+        es_admin=es_admin(),
         puede_gestionar=usuario_puede_gestionar(),
         puede_crear_trabajos=usuario_puede_crear_trabajos(),
         usuario_id=usuario_id,
@@ -333,7 +437,7 @@ def reportes():
     if not session.get("usuario_id"):
         return redirect(url_for("login"))
 
-    if not session.get("es_admin", False):
+    if not es_admin():
         return redirect(url_for("panel"))
 
     return render_template("reportes.html")
@@ -344,7 +448,7 @@ def usuarios_page():
     if not session.get("usuario_id"):
         return redirect(url_for("login"))
 
-    if not session.get("es_admin", False):
+    if not es_admin():
         return redirect(url_for("panel"))
 
     docs = db.collection("usuarios").order_by("id").stream()
@@ -449,7 +553,7 @@ def editar_usuario(usuario_id):
     if not session.get("usuario_id"):
         return redirect(url_for("login"))
 
-    if not session.get("es_admin", False):
+    if not es_admin():
         return redirect(url_for("panel"))
 
     docs = db.collection("usuarios").where("id", "==", usuario_id).limit(1).stream()
@@ -470,7 +574,7 @@ def actualizar_usuario_admin(usuario_id):
     if not session.get("usuario_id"):
         return redirect(url_for("login"))
 
-    if not session.get("es_admin", False):
+    if not es_admin():
         return redirect(url_for("panel"))
 
     nombre = (request.form.get("nombre") or "").strip()
@@ -482,26 +586,41 @@ def actualizar_usuario_admin(usuario_id):
     docs = db.collection("usuarios").where("id", "==", usuario_id).limit(1).stream()
 
     usuario_doc = None
+    usuario_data = None
 
     for doc in docs:
         usuario_doc = doc
+        usuario_data = doc.to_dict() or {}
         break
 
     if not usuario_doc:
         return redirect(url_for("usuarios_page", ok="actualizado"))
 
+    # 🔥 Nadie puede modificar al super admin, salvo el mismo super admin
+    if usuario_data.get("super_admin", False) and not es_super_admin():
+        return redirect(url_for("usuarios_page"))
+
     nuevo_es_admin = "es_admin" in request.form
     nuevo_puede_gestionar = "puede_gestionar" in request.form
     nuevo_puede_crear_trabajos = "puede_crear_trabajos" in request.form
     nuevo_activo = "activo" in request.form
+
     if nuevo_es_admin:
         nuevo_puede_gestionar = True
         nuevo_puede_crear_trabajos = True
 
-    if usuario_id == session.get("usuario_id"):
+    # 🔥 Si el usuario objetivo es super admin, queda blindado
+    if usuario_data.get("super_admin", False):
         nuevo_es_admin = True
         nuevo_puede_gestionar = True
         nuevo_puede_crear_trabajos = True
+        nuevo_activo = True
+
+    # 🔐 Evitar que cualquier usuario se quite permisos a sí mismo
+    if usuario_id == session.get("usuario_id"):
+        nuevo_es_admin = True if es_admin() else nuevo_es_admin
+        nuevo_puede_gestionar = True if es_admin() else nuevo_puede_gestionar
+        nuevo_puede_crear_trabajos = True if es_admin() else nuevo_puede_crear_trabajos
         nuevo_activo = True
 
     update_data = {
@@ -511,40 +630,54 @@ def actualizar_usuario_admin(usuario_id):
         "puede_crear_trabajos": nuevo_puede_crear_trabajos,
         "activo": nuevo_activo,
     }
-    # 🔐 PROTECCIÓN: evitar que el usuario se quite permisos a sí mismo
-
-    if usuario_id == session.get("usuario_id"):
-        update_data["es_admin"] = True
-        update_data["puede_gestionar"] = True
-        update_data["puede_crear_trabajos"] = True
-        update_data["activo"] = True
 
     if clave:
+        # 🔥 Solo el propio super admin puede cambiar su clave desde aquí
+        if usuario_data.get("super_admin", False) and not es_super_admin():
+            return redirect(url_for("usuarios_page"))
         update_data["clave"] = generate_password_hash(clave)
 
     usuario_doc.reference.update(update_data)
     batuta_actual = obtener_batuta_usuario_id()
 
+    # Si el usuario editado tenía la batuta y deja de ser elegible, devolverla
     if batuta_actual == usuario_id and (
         not update_data["activo"]
         or (not update_data["es_admin"] and not update_data["puede_gestionar"])
     ):
-        docs_admin = (
+        docs_super = (
             db.collection("usuarios")
-            .where("es_admin", "==", True)
+            .where("super_admin", "==", True)
             .where("activo", "==", True)
             .limit(1)
             .stream()
         )
 
-        admin_id = None
-        for doc_admin in docs_admin:
-            admin_data = doc_admin.to_dict() or {}
-            admin_id = admin_data.get("id")
+        super_admin_id = None
+        for doc_super in docs_super:
+            data_super = doc_super.to_dict() or {}
+            super_admin_id = data_super.get("id")
             break
 
-        if admin_id is not None:
-            guardar_batuta_usuario_id(admin_id)
+        if super_admin_id is not None:
+            guardar_batuta_usuario_id(super_admin_id)
+        else:
+            docs_admin = (
+                db.collection("usuarios")
+                .where("es_admin", "==", True)
+                .where("activo", "==", True)
+                .limit(1)
+                .stream()
+            )
+
+            admin_id = None
+            for doc_admin in docs_admin:
+                admin_data = doc_admin.to_dict() or {}
+                admin_id = admin_data.get("id")
+                break
+
+            if admin_id is not None:
+                guardar_batuta_usuario_id(admin_id)
 
     if usuario_id == session.get("usuario_id"):
         session["usuario_nombre"] = update_data["nombre"]
@@ -560,7 +693,7 @@ def crear_usuario():
     if not session.get("usuario_id"):
         return redirect(url_for("login"))
 
-    if not session.get("es_admin", False):
+    if not es_admin():
         return redirect(url_for("panel"))
 
     if request.method == "GET":
@@ -618,6 +751,7 @@ def crear_usuario():
         "nombre": nombre,
         "clave": generate_password_hash(clave),
         "es_admin": nuevo_es_admin,
+        "super_admin": False,
         "puede_gestionar": nuevo_puede_gestionar,
         "puede_crear_trabajos": nuevo_puede_crear_trabajos,
         "activo": nuevo_activo,
@@ -633,20 +767,28 @@ def resetear_clave_usuario(usuario_id):
     if not session.get("usuario_id"):
         return redirect(url_for("login"))
 
-    if not session.get("es_admin", False):
+    if not es_admin():
         return redirect(url_for("panel"))
-        # 🔐 Evitar que el admin se resetee su propia clave
+
+    # 🔐 Evitar que un admin se resetee su propia clave desde aquí
     if usuario_id == session.get("usuario_id"):
         return redirect(url_for("usuarios_page"))
 
     docs = db.collection("usuarios").where("id", "==", usuario_id).limit(1).stream()
 
     usuario_doc = None
+    usuario_data = None
+
     for doc in docs:
         usuario_doc = doc
+        usuario_data = doc.to_dict() or {}
         break
 
     if not usuario_doc:
+        return redirect(url_for("usuarios_page"))
+
+    # 🔥 Nadie puede resetear la clave del super admin, salvo él mismo desde su perfil
+    if usuario_data.get("super_admin", False):
         return redirect(url_for("usuarios_page"))
 
     nueva_clave = generate_password_hash("1234")
@@ -677,7 +819,7 @@ def nuevo_tecnico():
     if not session.get("usuario_id"):
         return redirect(url_for("login"))
 
-    if not session.get("es_admin", False):
+    if not es_admin():
         return redirect(url_for("panel"))
 
     if request.method == "POST":
@@ -756,7 +898,7 @@ def actualizar_tecnico(tecnico_id):
     if not session.get("usuario_id"):
         return redirect(url_for("login"))
 
-    if not session.get("es_admin", False):
+    if not es_admin():
         return redirect(url_for("panel"))
 
     nombre = (request.form.get("nombre") or "").strip()
@@ -827,7 +969,7 @@ def nuevo_vendedor():
     if not session.get("usuario_id"):
         return redirect(url_for("login"))
 
-    if not session.get("es_admin", False):
+    if not es_admin():
         return redirect(url_for("panel"))
 
     if request.method == "POST":
@@ -886,7 +1028,7 @@ def actualizar_vendedor(vendedor_id):
     if not session.get("usuario_id"):
         return redirect(url_for("login"))
 
-    if not session.get("es_admin", False):
+    if not es_admin():
         return redirect(url_for("panel"))
 
     nombre = (request.form.get("nombre") or "").strip()

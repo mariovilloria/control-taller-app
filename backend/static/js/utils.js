@@ -349,7 +349,6 @@ async function toggleActivoTecnicoEventual(tecnicoId, nuevoActivo) {
     }
 
     await tecnicoRef.update({ activo: nuevoActivo });
-    await cargarDatos();
   } catch (error) {
     console.error("Error actualizando técnico eventual:", error);
     alert("No se pudo actualizar el técnico eventual.");
@@ -375,7 +374,6 @@ async function habilitarTecnicoDesdeAcciones(tecnicoId) {
     });
 
     cerrarModalAccionesTecnico();
-    await cargarDatos();
   } catch (error) {
     console.error("Error habilitando técnico:", error);
     alert("No se pudo habilitar el técnico.");
@@ -400,7 +398,6 @@ async function deshabilitarTecnicoDesdeAcciones(tecnicoId) {
     });
 
     cerrarModalAccionesTecnico();
-    await cargarDatos();
   } catch (error) {
     console.error("Error deshabilitando técnico:", error);
     alert("No se pudo deshabilitar el técnico.");
@@ -412,4 +409,106 @@ function formatearEstado(estado) {
   if (!estado) return "";
 
   return estado.replaceAll("_", " ").replace(/\b\w/g, (l) => l.toUpperCase());
+}
+function abrirModalLogout(e) {
+  e.preventDefault();
+  document.getElementById("modalLogout").classList.remove("hidden");
+}
+
+function cancelarLogout() {
+  document.getElementById("modalLogout").classList.add("hidden");
+}
+
+function ejecutarLogout() {
+  window.location.href = "/logout";
+}
+
+function actualizarMenuSegunEstado() {
+  const formRecuperar = document.getElementById("formRecuperarBatuta");
+  const formTransferir = document.getElementById("formTransferirBatuta");
+  const formSoltar = document.getElementById("formSoltarBatuta");
+  const btnCierreDia = document.getElementById("btnCierreDia");
+
+  const menuReportes = document.getElementById("menuReportes");
+  const menuUsuarios = document.getElementById("menuUsuarios");
+  const menuTecnicos = document.getElementById("menuTecnicos");
+  const menuVendedores = document.getElementById("menuVendedores");
+
+  const seccionSupervision = document.getElementById("menuSeccionSupervision");
+  const seccionGestion = document.getElementById("menuSeccionGestion");
+  const seccionSistema = document.getElementById("menuSeccionSistema");
+  const seccionCuenta = document.getElementById("menuSeccionCuenta");
+
+  const nivelUsuarioTexto = document.getElementById("nivelUsuarioTexto");
+  const cardCrearTrabajo = document.getElementById("cardCrearTrabajo");
+
+  const puedeCrearTrabajosBase =
+    usuarioActualCache?.puede_crear_trabajos === true;
+
+  PUEDE_GESTIONAR_UI = ES_ADMIN || TIENE_BATUTA;
+  PUEDE_CREAR_TRABAJOS = ES_ADMIN || TIENE_BATUTA || puedeCrearTrabajosBase;
+
+  if (formRecuperar) {
+    formRecuperar.style.display = ES_ADMIN ? "block" : "none";
+  }
+
+  if (formTransferir) {
+    formTransferir.style.display = ES_ADMIN || TIENE_BATUTA ? "flex" : "none";
+  }
+
+  if (formSoltar) {
+    formSoltar.style.display = TIENE_BATUTA && !ES_ADMIN ? "block" : "none";
+  }
+
+  if (btnCierreDia) {
+    btnCierreDia.style.display = ES_ADMIN || TIENE_BATUTA ? "block" : "none";
+  }
+
+  if (menuReportes) {
+    menuReportes.style.display = ES_ADMIN ? "block" : "none";
+  }
+
+  if (menuUsuarios) {
+    menuUsuarios.style.display = ES_ADMIN ? "block" : "none";
+  }
+
+  if (menuTecnicos) {
+    menuTecnicos.style.display = ES_ADMIN ? "block" : "none";
+  }
+
+  if (menuVendedores) {
+    menuVendedores.style.display = ES_ADMIN ? "block" : "none";
+  }
+
+  const visibilidad = [
+    { el: seccionSupervision, visible: ES_ADMIN || TIENE_BATUTA },
+    { el: seccionGestion, visible: ES_ADMIN },
+    { el: seccionSistema, visible: ES_ADMIN || TIENE_BATUTA },
+    { el: seccionCuenta, visible: true },
+  ];
+
+  visibilidad.forEach(({ el, visible }) => {
+    if (!el) return;
+    el.classList.toggle("oculta", !visible);
+    el.classList.remove("primera-visible");
+  });
+
+  const primeraVisible = visibilidad.find((v) => v.el && v.visible);
+  if (primeraVisible?.el) {
+    primeraVisible.el.classList.add("primera-visible");
+  }
+
+  if (nivelUsuarioTexto) {
+    nivelUsuarioTexto.textContent = ES_ADMIN
+      ? "Administrador"
+      : TIENE_BATUTA
+        ? "Gestión activa"
+        : puedeCrearTrabajosBase
+          ? "Creación de trabajos"
+          : "Consulta";
+  }
+
+  if (cardCrearTrabajo) {
+    cardCrearTrabajo.style.display = PUEDE_CREAR_TRABAJOS ? "block" : "none";
+  }
 }
