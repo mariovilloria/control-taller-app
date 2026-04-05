@@ -696,14 +696,18 @@ def nuevo_tecnico():
                 error="Debes seleccionar un tipo válido.",
             )
 
-        docs = db.collection("tecnicos").stream()
-        ultimo_id = 0
+        docs = (
+            db.collection("tecnicos")
+            .order_by("id", direction=firestore.Query.DESCENDING)
+            .limit(1)
+            .stream()
+        )
 
+        ultimo_id = 0
         for doc in docs:
             data = doc.to_dict() or {}
-            tecnico_id = data.get("id", 0)
-            if isinstance(tecnico_id, int) and tecnico_id > ultimo_id:
-                ultimo_id = tecnico_id
+            ultimo_id = data.get("id", 0)
+            break
 
         nuevo_id = ultimo_id + 1
 
@@ -835,14 +839,18 @@ def nuevo_vendedor():
                 error="Debes ingresar el nombre.",
             )
 
-        docs = db.collection("vendedores").stream()
-        ultimo_id = 0
+        docs = (
+            db.collection("vendedores")
+            .order_by("id", direction=firestore.Query.DESCENDING)
+            .limit(1)
+            .stream()
+        )
 
+        ultimo_id = 0
         for doc in docs:
             data = doc.to_dict() or {}
-            vendedor_id = data.get("id", 0)
-            if isinstance(vendedor_id, int) and vendedor_id > ultimo_id:
-                ultimo_id = vendedor_id
+            ultimo_id = data.get("id", 0)
+            break
 
         nuevo_id = ultimo_id + 1
 
