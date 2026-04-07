@@ -303,23 +303,57 @@ function obtenerCargaActualTecnico(tecnicoId) {
     ? ultimoResumen.trabajos
     : [];
 
-  const ahora = new Date();
+  const hoy = new Date();
+  const inicioHoy = new Date(
+    hoy.getFullYear(),
+    hoy.getMonth(),
+    hoy.getDate(),
+    0,
+    0,
+    0,
+    0,
+  );
+  const finHoy = new Date(
+    hoy.getFullYear(),
+    hoy.getMonth(),
+    hoy.getDate(),
+    23,
+    59,
+    59,
+    999,
+  );
 
-  function esMismoDia(fechaIso) {
-    if (!fechaIso) return false;
-
+  function parseFechaSeguraLocal(fechaIso) {
+    if (!fechaIso) return null;
     const fecha = new Date(fechaIso);
-    if (isNaN(fecha.getTime())) return false;
+    return isNaN(fecha.getTime()) ? null : fecha;
+  }
 
-    return (
-      fecha.getFullYear() === ahora.getFullYear() &&
-      fecha.getMonth() === ahora.getMonth() &&
-      fecha.getDate() === ahora.getDate()
-    );
+  function cruzaHoy(inicioIso, finIso) {
+    const inicio = parseFechaSeguraLocal(inicioIso);
+    const fin = parseFechaSeguraLocal(finIso);
+
+    if (!inicio && !fin) return false;
+
+    let inicioReal = inicio || fin;
+    let finReal = fin || inicio;
+
+    if (!inicioReal || !finReal) return false;
+
+    if (finReal < inicioReal) {
+      const temp = inicioReal;
+      inicioReal = finReal;
+      finReal = temp;
+    }
+
+    if (finReal < inicioHoy) return false;
+    if (inicioReal > finHoy) return false;
+
+    return true;
   }
 
   let actividadesActivas = 0;
-  let actividadesTerminadasHoy = 0;
+  let actividadesCerradasHoy = 0;
   let tiempoActivoSeg = 0;
   let tiempoHoySeg = 0;
 
@@ -329,41 +363,78 @@ function obtenerCargaActualTecnico(tecnicoId) {
       : [];
 
     actividades.forEach((actividad) => {
-      const tecnicosActivos = Array.isArray(actividad?.tecnicos)
+      const activos = Array.isArray(actividad?.tecnicos)
         ? actividad.tecnicos
         : [];
-
-      const historialTecnicos = Array.isArray(actividad?.historial_tecnicos)
+      const historial = Array.isArray(actividad?.historial_tecnicos)
         ? actividad.historial_tecnicos
         : [];
 
-      tecnicosActivos.forEach((tecnicoTrabajo) => {
-        if (Number(tecnicoTrabajo?.id) !== Number(tecnicoId)) return;
+      const tecnicoActivo = activos.find(
+        (t) => Number(t?.id) === Number(tecnicoId),
+      );
 
+      const tecnicoHistorial = historial.find(
+        (h) => Number(h?.id) === Number(tecnicoId),
+      );
+
+      if (tecnicoActivo) {
         actividadesActivas += 1;
 
-        const segActual = segundosTecnicoActivo(tecnicoTrabajo);
+        const segActual = segundosTecnicoActivo(tecnicoActivo);
         tiempoActivoSeg += segActual;
-        tiempoHoySeg += segActual;
-      });
 
-      const actividadFinalizadaHoy = esMismoDia(actividad?.finalizado_at);
+        const inicioActivo =
+          tecnicoActivo.asignado_at ||
+          actividad.inicio_proceso_at ||
+          actividad.created_at ||
+          trabajo.created_at ||
+          actividad.finalizado_at;
 
-      if (!actividadFinalizadaHoy) return;
+        const finActivo =
+          tecnicoActivo.estado_en_trabajo === "trabajando"
+            ? new Date().toISOString()
+            : tecnicoActivo.liberado_at ||
+              tecnicoActivo.pausado_at ||
+              tecnicoActivo.finalizado_at ||
+              actividad.finalizado_at ||
+              inicioActivo;
 
-      historialTecnicos.forEach((tecnicoHistorial) => {
-        if (Number(tecnicoHistorial?.id) !== Number(tecnicoId)) return;
+        if (cruzaHoy(inicioActivo, finActivo)) {
+          tiempoHoySeg += segActual;
+        }
 
-        actividadesTerminadasHoy += 1;
-        tiempoHoySeg += obtenerTiempoGuardadoTecnico(tecnicoHistorial);
-      });
+        return;
+      }
+
+      if (!tecnicoHistorial) return;
+
+      const inicioHistorial =
+        tecnicoHistorial.asignado_at ||
+        tecnicoHistorial.iniciado_at ||
+        tecnicoHistorial.inicio_at ||
+        actividad.inicio_proceso_at ||
+        actividad.created_at ||
+        actividad.finalizado_at ||
+        trabajo.created_at;
+
+      const finHistorial =
+        tecnicoHistorial.pausado_at ||
+        tecnicoHistorial.finalizado_at ||
+        actividad.finalizado_at ||
+        inicioHistorial;
+
+      if (!cruzaHoy(inicioHistorial, finHistorial)) return;
+
+      actividadesCerradasHoy += 1;
+      tiempoHoySeg += obtenerTiempoGuardadoTecnico(tecnicoHistorial);
     });
   });
 
   return {
     actividadesActivas,
-    actividadesTerminadasHoy,
-    actividadesHoy: actividadesActivas + actividadesTerminadasHoy,
+    actividadesTerminadasHoy: actividadesCerradasHoy,
+    actividadesHoy: actividadesActivas + actividadesCerradasHoy,
     tiempoActivoSeg,
     tiempoHoySeg,
   };
