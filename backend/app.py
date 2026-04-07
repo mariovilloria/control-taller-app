@@ -853,22 +853,22 @@ def nuevo_tecnico():
 
         nuevo_id = ultimo_id + 1
 
-        db.collection("tecnicos").add(
-            {
-                "id": nuevo_id,
-                "nombre": nombre,
-                "tipo": tipo,
-                "habilitado": True,
-                "activo": True,
-                "estado": "libre",
-                "trabajo_id": None,
-                "almuerzo_desde": None,
-                "almuerzo_hasta": None,
-                "almuerzo_fecha": None,
-                "almuerzo_registrado": False,
-                "dia_libre": False,
-            }
-        )
+        nuevo_tecnico_data = {
+            "id": nuevo_id,
+            "nombre": nombre,
+            "tipo": tipo,
+            "habilitado": True,
+            "activo": True,
+            "estado": "libre",
+            "trabajo_id": None,
+            "almuerzo_desde": None,
+            "almuerzo_hasta": None,
+            "almuerzo_fecha": None,
+            "almuerzo_registrado": False,
+            "dia_libre": False,
+        }
+
+        db.collection("tecnicos").document(str(nuevo_id)).set(nuevo_tecnico_data)
 
         return redirect(url_for("tecnicos_page", ok="creado"))
 

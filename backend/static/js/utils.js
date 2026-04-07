@@ -298,6 +298,138 @@ function resumenRapidoTrabajo(trabajoActual) {
   return `${detalleCorto} · ${nombreResponsable(trabajoActual)}`;
 }
 
+function obtenerCargaActualTecnico(tecnicoId) {
+  const trabajos = Array.isArray(ultimoResumen?.trabajos)
+    ? ultimoResumen.trabajos
+    : [];
+
+  const ahora = new Date();
+
+  function esMismoDia(fechaIso) {
+    if (!fechaIso) return false;
+
+    const fecha = new Date(fechaIso);
+    if (isNaN(fecha.getTime())) return false;
+
+    return (
+      fecha.getFullYear() === ahora.getFullYear() &&
+      fecha.getMonth() === ahora.getMonth() &&
+      fecha.getDate() === ahora.getDate()
+    );
+  }
+
+  let actividadesActivas = 0;
+  let actividadesTerminadasHoy = 0;
+  let tiempoActivoSeg = 0;
+  let tiempoHoySeg = 0;
+
+  trabajos.forEach((trabajo) => {
+    const actividades = Array.isArray(trabajo?.actividades)
+      ? trabajo.actividades
+      : [];
+
+    actividades.forEach((actividad) => {
+      const tecnicosActivos = Array.isArray(actividad?.tecnicos)
+        ? actividad.tecnicos
+        : [];
+
+      const historialTecnicos = Array.isArray(actividad?.historial_tecnicos)
+        ? actividad.historial_tecnicos
+        : [];
+
+      tecnicosActivos.forEach((tecnicoTrabajo) => {
+        if (Number(tecnicoTrabajo?.id) !== Number(tecnicoId)) return;
+
+        actividadesActivas += 1;
+
+        const segActual = segundosTecnicoActivo(tecnicoTrabajo);
+        tiempoActivoSeg += segActual;
+        tiempoHoySeg += segActual;
+      });
+
+      const actividadFinalizadaHoy = esMismoDia(actividad?.finalizado_at);
+
+      if (!actividadFinalizadaHoy) return;
+
+      historialTecnicos.forEach((tecnicoHistorial) => {
+        if (Number(tecnicoHistorial?.id) !== Number(tecnicoId)) return;
+
+        actividadesTerminadasHoy += 1;
+        tiempoHoySeg += obtenerTiempoGuardadoTecnico(tecnicoHistorial);
+      });
+    });
+  });
+
+  return {
+    actividadesActivas,
+    actividadesTerminadasHoy,
+    actividadesHoy: actividadesActivas + actividadesTerminadasHoy,
+    tiempoActivoSeg,
+    tiempoHoySeg,
+  };
+}
+
+function htmlCargaTecnico(tecnico) {
+  if (!tecnico?.id) return "";
+
+  const carga = obtenerCargaActualTecnico(tecnico.id);
+
+  if (!carga.actividadesHoy && !carga.tiempoHoySeg) {
+    return `
+      <div style="
+        margin-top: 6px;
+        font-size: 12px;
+        color: #4b5563;
+        line-height: 1.25;
+      ">
+        <span style="font-weight: 600;">📊 Sin carga hoy</span>
+      </div>
+    `;
+  }
+
+  return `
+    <div style="
+      margin-top: 6px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 12px;
+      line-height: 1.25;
+    ">
+      <div style="
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      ">
+        <span style="font-weight: 700; color: #1f2937;">
+          📊 Hoy: ${carga.actividadesHoy}
+        </span>
+        <span style="font-weight: 700; color: #1f2937;">
+          ⏱ ${formatearDuracion(carga.tiempoHoySeg)}
+        </span>
+      </div>
+
+      <div style="
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        color: #374151;
+      ">
+        <span><strong>Activas:</strong> ${carga.actividadesActivas}</span>
+        <span><strong>Terminadas:</strong> ${carga.actividadesTerminadasHoy}</span>
+      </div>
+    </div>
+  `;
+}
+
+function numeroActividadesHoyTecnico(tecnicoId) {
+  if (!tecnicoId || typeof obtenerCargaActualTecnico !== "function") return 0;
+
+  const carga = obtenerCargaActualTecnico(tecnicoId) || {};
+  return Number(carga.actividadesHoy || 0);
+}
+
 let holdTecnicoEventualTimer = null;
 function iniciarHoldTecnicoEventual(tecnicoId, activoActual) {
   cancelarHoldTecnicoEventual();
