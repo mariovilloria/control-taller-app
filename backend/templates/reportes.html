@@ -71,7 +71,7 @@
         </button>
       </div>
     </div>
-
+    <div id="resumen-general-reportes" class="resumen-general-reportes"></div>
     <div id="tabla-productividad"></div>
     <div id="detalle-tecnico" class="detalle-tecnico"></div>
 
@@ -80,6 +80,7 @@
 
     <script>
       let ultimoResumenReportes = { tecnicos: [], trabajos: [] };
+      let ultimaProductividadCalculada = {};
 
       function obtenerFiltrosReportes() {
         return {
@@ -211,6 +212,101 @@
         );
       }
 
+      function redondearMinutos(valor) {
+        return Math.max(0, Math.round(Number(valor || 0) * 100) / 100);
+      }
+
+      function crearRegistroTecnico(nombre) {
+        return {
+          nombre,
+          actividades: 0,
+          tiempo: 0,
+          detalles: [],
+          _actividadesContadas: new Set(),
+          _detallesMap: new Map(),
+        };
+      }
+
+      function obtenerClaveActividad(tr, act, nombreTecnico) {
+        return `${tr.id || ""}__${act.id || act.descripcion || ""}__${nombreTecnico || ""}`;
+      }
+
+      function obtenerClaveDetalle(tr, act, nombreTecnico) {
+        return `${tr.id || ""}__${act.id || act.descripcion || ""}__${nombreTecnico || ""}`;
+      }
+
+      function asegurarTecnico(productividad, nombreTecnico) {
+        if (!nombreTecnico) return null;
+
+        if (!productividad[nombreTecnico]) {
+          productividad[nombreTecnico] = crearRegistroTecnico(nombreTecnico);
+        }
+
+        return productividad[nombreTecnico];
+      }
+
+      function registrarActividadSiNoExiste(registroTecnico, claveActividad) {
+        if (!registroTecnico || !claveActividad) return;
+
+        if (!registroTecnico._actividadesContadas.has(claveActividad)) {
+          registroTecnico._actividadesContadas.add(claveActividad);
+          registroTecnico.actividades += 1;
+        }
+      }
+
+      function registrarDetalle(
+        productividad,
+        tr,
+        act,
+        nombreTecnico,
+        detalle,
+      ) {
+        const registroTecnico = asegurarTecnico(productividad, nombreTecnico);
+        if (!registroTecnico) return;
+
+        const claveDetalle = obtenerClaveDetalle(tr, act, nombreTecnico);
+        const existente = registroTecnico._detallesMap.get(claveDetalle);
+
+        const prioridadEstado = (estado) => {
+          const valor = String(estado || "").toLowerCase();
+
+          if (valor === "finalizado") return 3;
+          if (valor === "trabajando") return 2;
+          if (valor === "pausado") return 1;
+          return 0;
+        };
+
+        if (existente) {
+          existente.tiempo += Number(detalle.tiempo || 0);
+
+          if (
+            prioridadEstado(detalle.estado) >= prioridadEstado(existente.estado)
+          ) {
+            existente.estado = detalle.estado;
+          }
+
+          if (!existente.fecha && detalle.fecha) {
+            existente.fecha = detalle.fecha;
+          }
+
+          return;
+        }
+
+        const nuevoDetalle = {
+          trabajoId: detalle.trabajoId || "",
+          origen: detalle.origen || "",
+          responsable: detalle.responsable || "",
+          detalleTrabajo: detalle.detalleTrabajo || "",
+          actividad: detalle.actividad || "",
+          fecha: detalle.fecha || "",
+          tiempo: Number(detalle.tiempo || 0),
+          estado: detalle.estado || "",
+        };
+
+        registroTecnico._detallesMap.set(claveDetalle, nuevoDetalle);
+        registroTecnico.detalles.push(nuevoDetalle);
+      }
+
       async function cargarProductividad() {
         if (
           !Array.isArray(ultimoResumenReportes.tecnicos) ||
@@ -239,17 +335,11 @@
         const filtros = obtenerFiltrosReportes();
         const tecnicos = ultimoResumenReportes.tecnicos || [];
         const trabajos = ultimoResumenReportes.trabajos || [];
-
         const productividad = {};
 
         tecnicos.forEach((t) => {
           if (!t?.nombre) return;
-          productividad[t.nombre] = {
-            nombre: t.nombre,
-            actividades: 0,
-            tiempo: 0,
-            detalles: [],
-          };
+          productividad[t.nombre] = crearRegistroTecnico(t.nombre);
         });
 
         trabajos.forEach((tr) => {
@@ -278,49 +368,156 @@
             const historial = Array.isArray(act.historial_tecnicos)
               ? act.historial_tecnicos
               : [];
+            const activos = Array.isArray(act.tecnicos) ? act.tecnicos : [];
+
+            const tecnicosActivosEnActividad = new Set(
+              activos
+                .filter((t) => t?.nombre)
+                .map((t) => `${Number(t.id) || 0}__${t.nombre}`),
+            );
 
             historial.forEach((tec) => {
               if (!tec?.nombre) return;
-              if (
-                !actividadCruzaRango(
-                  tec.asignado_at,
-                  tec.finalizado_at || tec.pausado_at,
-                )
-              ) {
+              const claveTecnicoActivo = `${Number(tec.id) || 0}__${tec.nombre}`;
+              if (tecnicosActivosEnActividad.has(claveTecnicoActivo)) {
                 return;
               }
 
-              if (!productividad[tec.nombre]) {
-                productividad[tec.nombre] = {
-                  nombre: tec.nombre,
-                  actividades: 0,
-                  tiempo: 0,
-                  detalles: [],
-                };
+              const inicioHistorial =
+                tec.asignado_at ||
+                tec.iniciado_at ||
+                tec.inicio_at ||
+                act.inicio_proceso_at ||
+                act.created_at ||
+                act.finalizado_at;
+
+              const finHistorial =
+                tec.finalizado_at ||
+                tec.pausado_at ||
+                act.finalizado_at ||
+                inicioHistorial;
+
+              if (!actividadCruzaRango(inicioHistorial, finHistorial)) {
+                return;
               }
 
-              const tiempoMin = Math.max(
-                0,
-                Math.round((Number(tec.tiempo_acumulado_seg || 0) / 60) * 100) /
-                  100,
+              const registroTecnico = asegurarTecnico(
+                productividad,
+                tec.nombre,
+              );
+              if (!registroTecnico) return;
+
+              const tiempoMin = redondearMinutos(
+                Number(tec.tiempo_acumulado_seg || 0) / 60,
               );
 
-              productividad[tec.nombre].actividades += 1;
-              productividad[tec.nombre].tiempo += tiempoMin;
-              productividad[tec.nombre].detalles.push({
+              const claveActividad = obtenerClaveActividad(tr, act, tec.nombre);
+              registrarActividadSiNoExiste(registroTecnico, claveActividad);
+
+              registroTecnico.tiempo += tiempoMin;
+
+              registrarDetalle(productividad, tr, act, tec.nombre, {
                 trabajoId: tr.id || "",
-                actividad: act.descripcion || "",
+                origen: tr.origen === "interno" ? "Interno" : "Vendedor",
                 responsable: responsableTrabajo || "",
-                origen: tr.origen || "",
-                fecha: formatearFechaActividad(
-                  tec.finalizado_at || tec.pausado_at || tec.asignado_at,
-                ),
+                detalleTrabajo: tr.descripcion || "",
+                actividad: act.descripcion || "",
+                fecha: formatearFechaActividad(inicioHistorial),
                 tiempo: tiempoMin,
+                estado: act.estado || "pendiente",
+              });
+            });
+
+            activos.forEach((tec) => {
+              if (!tec?.nombre) return;
+
+              const inicioActivo =
+                tec.asignado_at ||
+                act.inicio_proceso_at ||
+                act.created_at ||
+                act.finalizado_at;
+
+              const finActivo =
+                tec.estado_en_trabajo === "trabajando"
+                  ? new Date().toISOString()
+                  : tec.liberado_at ||
+                    tec.pausado_at ||
+                    tec.finalizado_at ||
+                    act.finalizado_at ||
+                    inicioActivo;
+
+              if (!actividadCruzaRango(inicioActivo, finActivo)) {
+                return;
+              }
+
+              const registroTecnico = asegurarTecnico(
+                productividad,
+                tec.nombre,
+              );
+              if (!registroTecnico) return;
+
+              let tiempoMin = Number(tec.tiempo_acumulado_seg || 0) / 60;
+
+              if (tec.estado_en_trabajo === "trabajando" && tec.asignado_at) {
+                const inicio = new Date(tec.asignado_at);
+                const ahora = new Date();
+                const hoyInicio = inicioDeHoy();
+                const desde = inicio < hoyInicio ? hoyInicio : inicio;
+
+                if (
+                  !isNaN(desde.getTime()) &&
+                  !isNaN(ahora.getTime()) &&
+                  ahora >= desde
+                ) {
+                  tiempoMin += (ahora - desde) / 60000;
+                }
+              }
+
+              tiempoMin = redondearMinutos(tiempoMin);
+
+              const claveActividad = obtenerClaveActividad(tr, act, tec.nombre);
+              registrarActividadSiNoExiste(registroTecnico, claveActividad);
+
+              registroTecnico.tiempo += tiempoMin;
+
+              registrarDetalle(productividad, tr, act, tec.nombre, {
+                trabajoId: tr.id || "",
+                origen: tr.origen === "interno" ? "Interno" : "Vendedor",
+                responsable: responsableTrabajo || "",
+                detalleTrabajo: tr.descripcion || "",
+                actividad: act.descripcion || "",
+                fecha: formatearFechaActividad(inicioActivo),
+                tiempo: tiempoMin,
+                estado: act.estado || "en_proceso",
               });
             });
           });
         });
 
+        Object.values(productividad).forEach((t) => {
+          t.tiempo = redondearMinutos(t.tiempo);
+
+          t.detalles.forEach((d) => {
+            d.tiempo = redondearMinutos(d.tiempo);
+          });
+
+          t.detalles.sort((a, b) => {
+            if ((b.tiempo || 0) !== (a.tiempo || 0)) {
+              return (b.tiempo || 0) - (a.tiempo || 0);
+            }
+            return String(a.trabajoId || "").localeCompare(
+              String(b.trabajoId || ""),
+              "es",
+              { numeric: true, sensitivity: "base" },
+            );
+          });
+
+          delete t._actividadesContadas;
+          delete t._detallesMap;
+        });
+
+        ultimaProductividadCalculada = productividad;
+        renderResumenGeneralReportes();
         renderTabla(productividad);
 
         const tecnicoSeleccionado = filtros.tecnico;
@@ -350,8 +547,9 @@
       }
 
       function formatearMinutos(min) {
-        const h = Math.floor(min / 60);
-        const m = Math.floor(min % 60);
+        const totalMin = Math.max(0, Math.round(Number(min || 0)));
+        const h = Math.floor(totalMin / 60);
+        const m = totalMin % 60;
         return `${h}h ${m}m`;
       }
 
@@ -361,6 +559,124 @@
 
         selectTecnico.value = nombreTecnico;
         recalcularProductividadDesdeMemoria();
+      }
+
+      function renderResumenGeneralReportes() {
+        const cont = document.getElementById("resumen-general-reportes");
+        if (!cont) return;
+
+        const filtros = obtenerFiltrosReportes();
+        const trabajos = Array.isArray(ultimoResumenReportes.trabajos)
+          ? ultimoResumenReportes.trabajos
+          : [];
+
+        let trabajosTotales = 0;
+        let actividadesTotales = 0;
+
+        trabajos.forEach((tr) => {
+          if (!tr) return;
+
+          if (
+            filtros.tipoResponsable &&
+            (tr.origen || "") !== filtros.tipoResponsable
+          ) {
+            return;
+          }
+
+          const responsableTrabajo = obtenerResponsableTrabajo(tr);
+          if (
+            filtros.responsable &&
+            responsableTrabajo !== filtros.responsable
+          ) {
+            return;
+          }
+
+          const actividades = Array.isArray(tr.actividades)
+            ? tr.actividades
+            : [];
+
+          let trabajoCuenta = false;
+
+          actividades.forEach((act) => {
+            const historial = Array.isArray(act.historial_tecnicos)
+              ? act.historial_tecnicos
+              : [];
+            const activos = Array.isArray(act.tecnicos) ? act.tecnicos : [];
+
+            let actividadCuenta = false;
+
+            historial.forEach((tec) => {
+              if (!tec?.nombre) return;
+              if (filtros.tecnico && tec.nombre !== filtros.tecnico) return;
+
+              const inicioHistorial =
+                tec.asignado_at ||
+                tec.iniciado_at ||
+                tec.inicio_at ||
+                act.inicio_proceso_at ||
+                act.created_at ||
+                act.finalizado_at;
+
+              const finHistorial =
+                tec.finalizado_at ||
+                tec.pausado_at ||
+                act.finalizado_at ||
+                inicioHistorial;
+
+              if (!actividadCruzaRango(inicioHistorial, finHistorial)) return;
+
+              actividadCuenta = true;
+            });
+
+            activos.forEach((tec) => {
+              if (!tec?.nombre) return;
+              if (filtros.tecnico && tec.nombre !== filtros.tecnico) return;
+
+              const inicioActivo =
+                tec.asignado_at ||
+                act.inicio_proceso_at ||
+                act.created_at ||
+                act.finalizado_at;
+
+              const finActivo =
+                tec.estado_en_trabajo === "trabajando"
+                  ? new Date().toISOString()
+                  : tec.liberado_at ||
+                    tec.pausado_at ||
+                    tec.finalizado_at ||
+                    act.finalizado_at ||
+                    inicioActivo;
+
+              if (!actividadCruzaRango(inicioActivo, finActivo)) return;
+
+              actividadCuenta = true;
+            });
+
+            if (actividadCuenta) {
+              actividadesTotales += 1;
+              trabajoCuenta = true;
+            }
+          });
+
+          if (trabajoCuenta) {
+            trabajosTotales += 1;
+          }
+        });
+
+        cont.innerHTML = `
+    <div class="tabla-reportes" style="margin-bottom: 16px;">
+      <table class="tabla-reportes">
+        <tr>
+          <th>Trabajos totales</th>
+          <th>Actividades totales</th>
+        </tr>
+        <tr>
+          <td>${trabajosTotales}</td>
+          <td>${actividadesTotales}</td>
+        </tr>
+      </table>
+    </div>
+  `;
       }
 
       function renderTabla(data) {
@@ -394,7 +710,12 @@
 
             return true;
           })
-          .sort((a, b) => b.actividades - a.actividades)
+          .sort((a, b) => {
+            if (b.actividades !== a.actividades) {
+              return b.actividades - a.actividades;
+            }
+            return b.tiempo - a.tiempo;
+          })
           .forEach((t) => {
             const promedio = t.actividades > 0 ? t.tiempo / t.actividades : 0;
             filasMostradas += 1;
@@ -513,140 +834,36 @@
         const cont = document.getElementById("detalle-tecnico");
         if (!cont) return;
 
-        const trabajos = Array.isArray(ultimoResumenReportes.trabajos)
-          ? ultimoResumenReportes.trabajos
-          : [];
+        const tecnico = ultimaProductividadCalculada[nombreTecnico];
 
-        const filtros = obtenerFiltrosReportes();
-        let filas = "";
-
-        trabajos.forEach((tr) => {
-          const responsableTrabajo = obtenerResponsableTrabajo(tr);
-          const origenTrabajo = (tr.origen || "").toLowerCase();
-
-          if (
-            filtros.tipoResponsable &&
-            origenTrabajo !== filtros.tipoResponsable
-          ) {
-            return;
-          }
-
-          if (
-            filtros.responsable &&
-            responsableTrabajo !== filtros.responsable
-          ) {
-            return;
-          }
-
-          (tr.actividades || []).forEach((act) => {
-            const historial = Array.isArray(act.historial_tecnicos)
-              ? act.historial_tecnicos
-              : [];
-            const activos = Array.isArray(act.tecnicos) ? act.tecnicos : [];
-
-            historial.forEach((h) => {
-              if ((h.nombre || "") !== nombreTecnico) return;
-
-              const sigueActivo = activos.some(
-                (t) =>
-                  Number(t.id) === Number(h.id) &&
-                  (t.nombre || "") === nombreTecnico,
-              );
-
-              if (sigueActivo) return;
-
-              const inicioHistorial =
-                h.asignado_at ||
-                h.iniciado_at ||
-                h.inicio_at ||
-                act.inicio_proceso_at ||
-                act.created_at ||
-                act.finalizado_at;
-
-              const finHistorial =
-                h.pausado_at ||
-                h.finalizado_at ||
-                act.finalizado_at ||
-                inicioHistorial;
-
-              if (!actividadCruzaRango(inicioHistorial, finHistorial)) return;
-
-              filas += `
-                <tr class="${tr.origen === "interno" ? "fila-interna" : ""}">
-                  <td>${tr.id}</td>
-                  <td>${tr.origen === "interno" ? "Interno" : "Vendedor"}</td>
-                  <td>${responsableTrabajo}</td>
-                  <td>${tr.descripcion || ""}</td>
-                  <td>${act.descripcion || ""}</td>
-                  <td>${formatearFechaActividad(inicioHistorial)}</td>
-                  <td>${formatearMinutos(Number(h.tiempo_acumulado_seg || 0) / 60)}</td>
-                  <td>${h.estado_en_trabajo || "finalizado"}</td>
-                </tr>
-              `;
-            });
-
-            activos.forEach((t) => {
-              if ((t.nombre || "") !== nombreTecnico) return;
-
-              const inicioActivo =
-                t.asignado_at ||
-                act.inicio_proceso_at ||
-                act.created_at ||
-                act.finalizado_at;
-
-              const finActivo =
-                t.estado_en_trabajo === "trabajando"
-                  ? new Date().toISOString()
-                  : t.liberado_at ||
-                    t.pausado_at ||
-                    t.finalizado_at ||
-                    act.finalizado_at ||
-                    inicioActivo;
-
-              if (!actividadCruzaRango(inicioActivo, finActivo)) return;
-
-              let minutos = Number(t.tiempo_acumulado_seg || 0) / 60;
-
-              if (t.estado_en_trabajo === "trabajando" && t.asignado_at) {
-                const inicio = new Date(t.asignado_at);
-                const ahora = new Date();
-                const hoyInicio = inicioDeHoy();
-                const desde = inicio < hoyInicio ? hoyInicio : inicio;
-
-                if (
-                  !isNaN(desde.getTime()) &&
-                  !isNaN(ahora.getTime()) &&
-                  ahora >= desde
-                ) {
-                  minutos += (ahora - desde) / 60000;
-                }
-              }
-
-              if (minutos <= 0) return;
-
-              filas += `
-                <tr class="${tr.origen === "interno" ? "fila-interna" : ""}">
-                  <td>${tr.id}</td>
-                  <td>${tr.origen === "interno" ? "Interno" : "Vendedor"}</td>
-                  <td>${responsableTrabajo}</td>
-                  <td>${tr.descripcion || ""}</td>
-                  <td>${act.descripcion || ""}</td>
-                  <td>${formatearFechaActividad(inicioActivo)}</td>
-                  <td>${formatearMinutos(minutos)}</td>
-                  <td>${t.estado_en_trabajo || "trabajando"}</td>
-                </tr>
-              `;
-            });
-          });
-        });
-
-        if (!filas) {
+        if (
+          !tecnico ||
+          !Array.isArray(tecnico.detalles) ||
+          tecnico.detalles.length === 0
+        ) {
           cont.innerHTML = `
             <h3>Detalle de ${nombreTecnico}</h3>
             <p>No hay actividades registradas con los filtros seleccionados.</p>
           `;
           return;
         }
+
+        const filas = tecnico.detalles
+          .map((detalle) => {
+            return `
+              <tr class="${(detalle.origen || "").toLowerCase() === "interno" ? "fila-interna" : ""}">
+                <td>${detalle.trabajoId || ""}</td>
+                <td>${detalle.origen || ""}</td>
+                <td>${detalle.responsable || ""}</td>
+                <td>${detalle.detalleTrabajo || ""}</td>
+                <td>${detalle.actividad || ""}</td>
+                <td>${detalle.fecha || ""}</td>
+                <td>${formatearMinutos(detalle.tiempo || 0)}</td>
+                <td>${detalle.estado || ""}</td>
+              </tr>
+            `;
+          })
+          .join("");
 
         cont.innerHTML = `
           <h3>Detalle de ${nombreTecnico}</h3>

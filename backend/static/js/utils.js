@@ -214,7 +214,10 @@ function obtenerTiempoGuardadoTecnico(tecnicoData) {
   return Number.isFinite(valor) && valor >= 0 ? valor : 0;
 }
 
-function cerrarTiempoTecnicoEnTrabajo(tecnicoTrabajo) {
+function cerrarTiempoTecnicoEnTrabajo(
+  tecnicoTrabajo,
+  estadoSalida = "pausado",
+) {
   if (!tecnicoTrabajo) return null;
 
   const copia = { ...tecnicoTrabajo };
@@ -237,10 +240,25 @@ function cerrarTiempoTecnicoEnTrabajo(tecnicoTrabajo) {
     }
   }
 
+  const ahoraIso = new Date().toISOString();
+
   copia.tiempo_acumulado_seg = Math.max(0, acumulado);
-  copia.estado_en_trabajo = "pausado";
-  copia.pausado_at = new Date().toISOString();
+  copia.estado_en_trabajo = estadoSalida || "pausado";
   copia.asignado_at = null;
+
+  copia.pausado_at = null;
+  copia.finalizado_at = null;
+  copia.liberado_at = null;
+
+  if (estadoSalida === "finalizado") {
+    copia.finalizado_at = ahoraIso;
+  } else if (estadoSalida === "pausado") {
+    copia.pausado_at = ahoraIso;
+  } else if (estadoSalida === "pendiente") {
+    copia.liberado_at = ahoraIso;
+  } else {
+    copia.liberado_at = ahoraIso;
+  }
 
   return copia;
 }
