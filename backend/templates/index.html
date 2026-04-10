@@ -8,6 +8,10 @@
       rel="stylesheet"
       href="{{ url_for('static', filename='css/styles.css') }}"
     />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/index.css') }}"
+    />
   </head>
   <body>
     <div
@@ -724,6 +728,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
     <script src="{{ url_for('static', filename='js/utils.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/index.js') }}"></script>
     <script>
                                                                                                                                                                                                                                                                                                                                                       let vendedorEdicionSeleccionado = null;
                                                                                                                                                                                                                                                                                                                                                       let origenEdicionSeleccionado = null;
@@ -764,7 +769,7 @@
                                                                                                                                           document.getElementById("config")?.dataset.tieneBatuta === "true";
                                                                                                                                         let PUEDE_CREAR_TRABAJOS =
                                                                                                                                           document.getElementById("config")?.dataset.puedeCrearTrabajos === "true";
-                                                                                                                                        let ES_ADMIN = {{ 'true' if es_admin else 'false' }};
+                                                                                                                                        let ES_ADMIN = {{ es_admin | tojson }};
                                                                                                                                         const USUARIO_ID_ACTUAL = Number({{ usuario_id | tojson }});
                                                                                                                                                                                                                                                                                                                                           function puedeGestionar() {
                                                                                                                                                                                                                                                                                                                                             return TIENE_BATUTA || ES_ADMIN;
@@ -5428,145 +5433,145 @@
     </script>
 
     <script>
-                                                                                                                                        const firebaseConfig = {{ firebase_config | tojson }};
-                                                                                                                                        const APP_ENV = {{ app_env | tojson }};
 
-                                                                                                                                                    firebase.initializeApp(firebaseConfig);
+      const firebaseConfig = {{ firebase_config | tojson }};
+      firebase.initializeApp(firebaseConfig);
 
-                                                                                                                                                    const db = firebase.firestore();
+      const db = firebase.firestore();
+      const auth = firebase.auth();
 
-                                                                                                                                                    const auth = firebase.auth();
+      window.db = db;
+      window.auth = auth;
+      const APP_ENV = {{ app_env | tojson }};
+      window.APP_ENV = APP_ENV;
 
-                                                                                                                                                    window.db = db;
-                                                                                                                                                    window.auth = auth;
 
-                                                                                                                                                    console.log("🔥 FIREBASE FUNCIONANDO");
-                                                                                                                                                    console.log("🌎 ENTORNO ACTIVO:", APP_ENV);
 
-                                                                                                                                                    if (typeof iniciarAplicacion === "function") {
-                                                                                                                                                    iniciarAplicacion();
-                                                                                                                                                    }
 
-                                                                                                                                                    const batutaRef = db.collection("config").doc("batuta");
+                                                                                                                                                          if (typeof iniciarAplicacion === "function") {
+                                                                                                                                                          iniciarAplicacion();
+                                                                                                                                                          }
 
-                              function actualizarVisibilidadSeccionesMenu({
-                                mostrarSupervision,
-                                mostrarGestion,
-                                mostrarSistema,
-                              }) {
-                                const seccionSupervision = document.getElementById("menuSeccionSupervision");
-                                const seccionGestion = document.getElementById("menuSeccionGestion");
-                                const seccionSistema = document.getElementById("menuSeccionSistema");
-                                const seccionCuenta = document.getElementById("menuSeccionCuenta");
+                                                                                                                                                          const batutaRef = db.collection("config").doc("batuta");
 
-                                const secciones = [
-                                  { el: seccionSupervision, visible: mostrarSupervision },
-                                  { el: seccionGestion, visible: mostrarGestion },
-                                  { el: seccionSistema, visible: mostrarSistema },
-                                  { el: seccionCuenta, visible: true },
-                                ];
+                                    function actualizarVisibilidadSeccionesMenu({
+                                      mostrarSupervision,
+                                      mostrarGestion,
+                                      mostrarSistema,
+                                    }) {
+                                      const seccionSupervision = document.getElementById("menuSeccionSupervision");
+                                      const seccionGestion = document.getElementById("menuSeccionGestion");
+                                      const seccionSistema = document.getElementById("menuSeccionSistema");
+                                      const seccionCuenta = document.getElementById("menuSeccionCuenta");
 
-                                secciones.forEach(({ el, visible }) => {
-                                  if (!el) return;
-                                  el.classList.remove("primera-visible");
-                                  el.classList.toggle("oculta", !visible);
-                                });
+                                      const secciones = [
+                                        { el: seccionSupervision, visible: mostrarSupervision },
+                                        { el: seccionGestion, visible: mostrarGestion },
+                                        { el: seccionSistema, visible: mostrarSistema },
+                                        { el: seccionCuenta, visible: true },
+                                      ];
 
-                                const primeraVisible = secciones.find(({ el, visible }) => el && visible);
-                                if (primeraVisible?.el) {
-                                  primeraVisible.el.classList.add("primera-visible");
-                                }
+                                      secciones.forEach(({ el, visible }) => {
+                                        if (!el) return;
+                                        el.classList.remove("primera-visible");
+                                        el.classList.toggle("oculta", !visible);
+                                      });
+
+                                      const primeraVisible = secciones.find(({ el, visible }) => el && visible);
+                                      if (primeraVisible?.el) {
+                                        primeraVisible.el.classList.add("primera-visible");
+                                      }
+                                    }
+
+
+
+                        // =============================
+                        // LISTENER BATUTA
+                        // =============================
+            batutaRef.onSnapshot(async (doc) => {
+              const data = doc.data() || {};
+              const batutaUsuarioId = data.usuario_id != null ? Number(data.usuario_id) : null;
+              const miUsuarioId = Number(USUARIO_ID_ACTUAL);
+
+              const label = document.getElementById("batutaTexto");
+              if (!label) return;
+
+              const tengoBatuta = batutaUsuarioId === miUsuarioId;
+
+              if (!batutaUsuarioId) {
+                label.textContent = "Sin asignar";
+              } else {
+                let nombre = "otro usuario";
+
+                if (nombreBatutaCache[batutaUsuarioId]) {
+                  nombre = nombreBatutaCache[batutaUsuarioId];
+                } else {
+                  const snap = await db.collection("usuarios")
+                    .where("id", "==", batutaUsuarioId)
+                    .limit(1)
+                    .get();
+
+                  if (!snap.empty) {
+                    nombre = snap.docs[0].data().nombre || nombre;
+                    nombreBatutaCache[batutaUsuarioId] = nombre;
+                  }
+                }
+
+                label.textContent = tengoBatuta
+                  ? "la tienes tú"
+                  : "la tiene " + nombre;
+              }
+
+              TIENE_BATUTA = tengoBatuta;
+
+              actualizarMenuSegunEstado();
+
+              if (ultimoResumen && Array.isArray(ultimoResumen.trabajos)) {
+                renderizarPanelPrincipal(ultimoResumen);
+              }
+            });
+
+
+                        // =============================
+                        // LISTENER USUARIO ACTUAL
+                        // =============================
+                        db.collection("usuarios")
+                          .where("id", "==", USUARIO_ID_ACTUAL)
+                          .limit(1)
+                          .onSnapshot(
+                            (snapshot) => {
+                              if (snapshot.empty) return;
+
+                              const usuarioActual = snapshot.docs[0].data() || {};
+                              usuarioActualCache = usuarioActual;
+                              ES_ADMIN = usuarioActual.es_admin === true;
+
+                              // 🔴 IMPORTANTE: usuario desactivado
+                              if (usuarioActual.activo === false) {
+                                window.location.href = "/logout";
+                                return;
                               }
 
+                              actualizarMenuSegunEstado();
 
+                              if (ultimoResumen && Array.isArray(ultimoResumen.trabajos)) {
+                                renderizarPanelPrincipal(ultimoResumen);
+                              }
+                            },
+                            (error) => {
+                              console.error("Error escuchando usuario actual:", error);
+                            }
+                          );
 
-                  // =============================
-                  // LISTENER BATUTA
-                  // =============================
-      batutaRef.onSnapshot(async (doc) => {
-        const data = doc.data() || {};
-        const batutaUsuarioId = data.usuario_id != null ? Number(data.usuario_id) : null;
-        const miUsuarioId = Number(USUARIO_ID_ACTUAL);
+                                                                                                                                  function abrirModalAccionesTecnico() {
+                                                                                                                                    const modal = document.getElementById("modalAccionesTecnico");
+                                                                                                                                    if (modal) modal.style.display = "block";
+                                                                                                                                  }
 
-        const label = document.getElementById("batutaTexto");
-        if (!label) return;
-
-        const tengoBatuta = batutaUsuarioId === miUsuarioId;
-
-        if (!batutaUsuarioId) {
-          label.textContent = "Sin asignar";
-        } else {
-          let nombre = "otro usuario";
-
-          if (nombreBatutaCache[batutaUsuarioId]) {
-            nombre = nombreBatutaCache[batutaUsuarioId];
-          } else {
-            const snap = await db.collection("usuarios")
-              .where("id", "==", batutaUsuarioId)
-              .limit(1)
-              .get();
-
-            if (!snap.empty) {
-              nombre = snap.docs[0].data().nombre || nombre;
-              nombreBatutaCache[batutaUsuarioId] = nombre;
-            }
-          }
-
-          label.textContent = tengoBatuta
-            ? "la tienes tú"
-            : "la tiene " + nombre;
-        }
-
-        TIENE_BATUTA = tengoBatuta;
-
-        actualizarMenuSegunEstado();
-
-        if (ultimoResumen && Array.isArray(ultimoResumen.trabajos)) {
-          renderizarPanelPrincipal(ultimoResumen);
-        }
-      });
-
-
-                  // =============================
-                  // LISTENER USUARIO ACTUAL
-                  // =============================
-                  db.collection("usuarios")
-                    .where("id", "==", USUARIO_ID_ACTUAL)
-                    .limit(1)
-                    .onSnapshot(
-                      (snapshot) => {
-                        if (snapshot.empty) return;
-
-                        const usuarioActual = snapshot.docs[0].data() || {};
-                        usuarioActualCache = usuarioActual;
-                        ES_ADMIN = usuarioActual.es_admin === true;
-
-                        // 🔴 IMPORTANTE: usuario desactivado
-                        if (usuarioActual.activo === false) {
-                          window.location.href = "/logout";
-                          return;
-                        }
-
-                        actualizarMenuSegunEstado();
-
-                        if (ultimoResumen && Array.isArray(ultimoResumen.trabajos)) {
-                          renderizarPanelPrincipal(ultimoResumen);
-                        }
-                      },
-                      (error) => {
-                        console.error("Error escuchando usuario actual:", error);
-                      }
-                    );
-
-                                                                                                                            function abrirModalAccionesTecnico() {
-                                                                                                                              const modal = document.getElementById("modalAccionesTecnico");
-                                                                                                                              if (modal) modal.style.display = "block";
-                                                                                                                            }
-
-                                                                                                                            function cerrarModalAccionesTecnico() {
-                                                                                                                              const modal = document.getElementById("modalAccionesTecnico");
-                                                                                                                              if (modal) modal.style.display = "none";
-                                                                                                                            }
+                                                                                                                                  function cerrarModalAccionesTecnico() {
+                                                                                                                                    const modal = document.getElementById("modalAccionesTecnico");
+                                                                                                                                    if (modal) modal.style.display = "none";
+                                                                                                                                  }
     </script>
   </body>
 </html>
