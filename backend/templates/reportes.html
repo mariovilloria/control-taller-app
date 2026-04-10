@@ -75,6 +75,32 @@
     <div id="tabla-productividad"></div>
     <div id="detalle-tecnico" class="detalle-tecnico"></div>
 
+    <hr style="margin: 28px 0 20px 0" />
+
+    <h2>Reporte por trabajo</h2>
+
+    <div class="filtros-reportes">
+      <div class="filtro-item">
+        <label for="filtroTrabajoId">Número de trabajo</label><br />
+        <input
+          type="text"
+          id="filtroTrabajoId"
+          placeholder="Ej: 562"
+          onkeydown="if (event.key === 'Enter') buscarReporteTrabajo();"
+        />
+      </div>
+
+      <div class="filtro-item filtro-acciones">
+        <button type="button" onclick="buscarReporteTrabajo()">Buscar</button>
+      </div>
+
+      <div class="filtro-item filtro-acciones">
+        <button type="button" onclick="limpiarReporteTrabajo()">Limpiar</button>
+      </div>
+    </div>
+
+    <div id="reporte-trabajo" class="detalle-tecnico"></div>
+
     <br />
     <a href="/panel" class="btn-volver">← Volver</a>
 
@@ -331,7 +357,232 @@
         recalcularProductividadDesdeMemoria();
       }
 
+      function limpiarReporteTrabajo() {
+        document.getElementById("filtroTrabajoId").value = "";
+        document.getElementById("reporte-trabajo").innerHTML = "";
+      }
+
+      function limpiarReporteTrabajoSilencioso() {
+        const input = document.getElementById("filtroTrabajoId");
+        const cont = document.getElementById("reporte-trabajo");
+
+        if (input) input.value = "";
+        if (cont) cont.innerHTML = "";
+      }
+
+      async function buscarReporteTrabajo() {
+        const input = document.getElementById("filtroTrabajoId");
+        if (!input) return;
+
+        const trabajoId = String(input.value || "").trim();
+        if (!trabajoId) {
+          alert("Ingresa un número de trabajo");
+          return;
+        }
+
+        const cont = document.getElementById("reporte-trabajo");
+        const trabajos = ultimoResumenReportes.trabajos || [];
+
+        const trabajoEnMemoria = trabajos.find(
+          (t) => String(t.id) === trabajoId,
+        );
+
+        if (trabajoEnMemoria) {
+          renderReporteTrabajo(trabajoEnMemoria);
+          return;
+        }
+
+        try {
+          cont.innerHTML = `<p>Buscando trabajo ${trabajoId}...</p>`;
+
+          const res = await fetch(
+            `/api/trabajo/${encodeURIComponent(trabajoId)}`,
+          );
+          const data = await res.json();
+
+          if (!res.ok || !data?.trabajo) {
+            cont.innerHTML = `<p>No se encontró el trabajo ${trabajoId}.</p>`;
+            return;
+          }
+
+          renderReporteTrabajo(data.trabajo);
+        } catch (error) {
+          console.error("Error buscando trabajo por ID:", error);
+          cont.innerHTML = `<p>No se pudo buscar el trabajo ${trabajoId}.</p>`;
+        }
+      }
+
+      function abrirDesdeDetalleTrabajo(trabajoId) {
+        const input = document.getElementById("filtroTrabajoId");
+        if (!input) return;
+
+        input.value = trabajoId;
+
+        buscarReporteTrabajo();
+
+        // opcional: hacer scroll hacia el reporte
+        const cont = document.getElementById("reporte-trabajo");
+        if (cont) {
+          cont.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }
+
+      function renderReporteTrabajo(trabajo) {
+        const cont = document.getElementById("reporte-trabajo");
+        if (!cont) return;
+
+        const actividades = Array.isArray(trabajo.actividades)
+          ? trabajo.actividades
+          : [];
+
+        if (actividades.length === 0) {
+          cont.innerHTML = `<p>El trabajo no tiene actividades.</p>`;
+          return;
+        }
+
+        const resumenTecnicos = {};
+        let totalTrabajo = 0;
+
+        let html = `
+    <h3>Trabajo #${trabajo.id}</h3>
+    <p><strong>Descripción:</strong> ${trabajo.descripcion || ""}</p>
+    <table class="tabla-reportes">
+      <tr>
+        <th>Actividad</th>
+        <th>Técnico</th>
+        <th>Tiempo</th>
+      </tr>
+  `;
+
+        actividades.forEach((act) => {
+          const activos = Array.isArray(act.tecnicos) ? act.tecnicos : [];
+          const historial = Array.isArray(act.historial_tecnicos)
+            ? act.historial_tecnicos
+            : [];
+
+          // 🔹 HISTORIAL
+          historial.forEach((tec) => {
+            if (!tec?.nombre) return;
+
+            const tiempoMin =
+              Math.round((Number(tec.tiempo_acumulado_seg || 0) / 60) * 100) /
+              100;
+
+            totalTrabajo += tiempoMin;
+
+            if (!resumenTecnicos[tec.nombre]) {
+              resumenTecnicos[tec.nombre] = 0;
+            }
+
+            resumenTecnicos[tec.nombre] += tiempoMin;
+
+            html += `
+        <tr>
+          <td>${act.descripcion || ""}</td>
+          <td>${tec.nombre}</td>
+          <td>${formatearMinutos(tiempoMin)}</td>
+        </tr>
+      `;
+          });
+
+          // 🔹 ACTIVOS
+          activos.forEach((tec) => {
+            if (!tec?.nombre) return;
+
+            let tiempoMin = Number(tec.tiempo_acumulado_seg || 0) / 60;
+
+            if (tec.estado_en_trabajo === "trabajando" && tec.asignado_at) {
+              const inicio = new Date(tec.asignado_at);
+              const ahora = new Date();
+
+              if (
+                !isNaN(inicio.getTime()) &&
+                !isNaN(ahora.getTime()) &&
+                ahora >= inicio
+              ) {
+                tiempoMin += (ahora - inicio) / 60000;
+              }
+            }
+
+            tiempoMin = Math.round(tiempoMin * 100) / 100;
+
+            totalTrabajo += tiempoMin;
+
+            if (!resumenTecnicos[tec.nombre]) {
+              resumenTecnicos[tec.nombre] = 0;
+            }
+
+            resumenTecnicos[tec.nombre] += tiempoMin;
+
+            html += `
+        <tr>
+          <td>${act.descripcion || ""}</td>
+          <td>${tec.nombre}</td>
+          <td>${formatearMinutos(tiempoMin)}</td>
+        </tr>
+      `;
+          });
+        });
+
+        html += `</table>`;
+
+        // 🔥 RESUMEN POR TÉCNICO
+        html += `
+    <h4 style="margin-top:20px;">Resumen por técnico</h4>
+    <table class="tabla-reportes">
+      <tr>
+        <th>Técnico</th>
+        <th>Tiempo total</th>
+      </tr>
+  `;
+
+        Object.entries(resumenTecnicos).forEach(([nombre, tiempo]) => {
+          html += `
+      <tr>
+        <td>${nombre}</td>
+        <td>${formatearMinutos(tiempo)}</td>
+      </tr>
+    `;
+        });
+
+        html += `</table>`;
+
+        // 🔥 TOTAL GENERAL
+        html += `
+    <h4 style="margin-top:20px;">
+      Total del trabajo: ${formatearMinutos(totalTrabajo)}
+    </h4>
+  `;
+
+        cont.innerHTML = html;
+      }
+
+      async function cargarResumenPorFecha() {
+        const desde = document.getElementById("filtroFechaDesde")?.value;
+
+        let url = "/api/resumen";
+
+        if (desde) {
+          url = `/api/resumen?fecha=${desde}`;
+        }
+
+        const res = await fetch(url);
+        const data = await res.json();
+
+        ultimoResumenReportes = {
+          tecnicos: data.tecnicos || [],
+          trabajos: data.trabajos || [],
+        };
+
+        llenarFiltros(
+          ultimoResumenReportes.tecnicos,
+          ultimoResumenReportes.trabajos,
+        );
+
+        recalcularProductividadDesdeMemoria();
+      }
       function recalcularProductividadDesdeMemoria() {
+        limpiarReporteTrabajoSilencioso();
         const filtros = obtenerFiltrosReportes();
         const tecnicos = ultimoResumenReportes.tecnicos || [];
         const trabajos = ultimoResumenReportes.trabajos || [];
@@ -850,18 +1101,26 @@
 
         const filas = tecnico.detalles
           .map((detalle) => {
+            const trabajoIdSeguro = String(detalle.trabajoId || "").replace(
+              /'/g,
+              "\\'",
+            );
+
             return `
-              <tr class="${(detalle.origen || "").toLowerCase() === "interno" ? "fila-interna" : ""}">
-                <td>${detalle.trabajoId || ""}</td>
-                <td>${detalle.origen || ""}</td>
-                <td>${detalle.responsable || ""}</td>
-                <td>${detalle.detalleTrabajo || ""}</td>
-                <td>${detalle.actividad || ""}</td>
-                <td>${detalle.fecha || ""}</td>
-                <td>${formatearMinutos(detalle.tiempo || 0)}</td>
-                <td>${detalle.estado || ""}</td>
-              </tr>
-            `;
+      <tr
+        class="fila-seleccionable ${(detalle.origen || "").toLowerCase() === "interno" ? "fila-interna" : ""}"
+        ${detalle.trabajoId ? `onclick="abrirDesdeDetalleTrabajo('${trabajoIdSeguro}')"` : ""}
+      >
+        <td>${detalle.trabajoId || ""}</td>
+        <td>${detalle.origen || ""}</td>
+        <td>${detalle.responsable || ""}</td>
+        <td>${detalle.detalleTrabajo || ""}</td>
+        <td>${detalle.actividad || ""}</td>
+        <td>${detalle.fecha || ""}</td>
+        <td>${formatearMinutos(detalle.tiempo || 0)}</td>
+        <td>${detalle.estado || ""}</td>
+      </tr>
+    `;
           })
           .join("");
 
@@ -905,7 +1164,7 @@
           if (!selectedDates || selectedDates.length === 0) {
             inputDesde.value = "";
             inputHasta.value = "";
-            recalcularProductividadDesdeMemoria();
+            cargarResumenPorFecha();
             return;
           }
 
@@ -922,7 +1181,7 @@
               ? formatearFecha(selectedDates[1])
               : formatearFecha(selectedDates[0]);
 
-          recalcularProductividadDesdeMemoria();
+          cargarResumenPorFecha();
         },
       });
 

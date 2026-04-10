@@ -1057,42 +1057,129 @@ def actualizar_vendedor(vendedor_id):
 def api_resumen():
     if not session.get("usuario_id"):
         return jsonify({"error": "No autenticado"}), 401
+
     fecha = (request.args.get("fecha") or "").strip()
 
-    trabajos_query = db.collection("trabajos").select(
-        [
-            "id",
-            "origen",
-            "responsable_nombre",
-            "vendedor_nombre",
-            "solicitante_nombre",
-            "descripcion",
-            "estado",
-            "actividades",
-        ]
-    )
-
     if fecha:
-        trabajos_query = trabajos_query.where("fecha", "==", fecha)
+        inicio_dia = datetime.strptime(fecha, "%Y-%m-%d")
+    else:
+        inicio_dia = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
 
-    trabajos_ref = trabajos_query.order_by("id").stream()
+    fin_dia = inicio_dia + timedelta(days=1)
 
-    tecnicos_ref = (
-        db.collection("tecnicos")
-        .select(
-            [
-                "id",
-                "nombre",
-            ]
-        )
-        .order_by("id")
-        .stream()
+    def estado_visual_trabajo_backend(trabajo):
+        actividades = trabajo.get("actividades") or []
+
+        if not actividades:
+            return (trabajo.get("estado") or "pendiente").strip().lower()
+
+        estados = [(a.get("estado") or "").strip().lower() for a in actividades]
+
+        if any(e == "en_proceso" for e in estados):
+            return "en_proceso"
+
+        if any(e == "pendiente" for e in estados):
+            return "pendiente"
+
+        if any(e == "pausado" for e in estados):
+            return "pausado"
+
+        if estados and all(e in ["finalizado", "no_realizada"] for e in estados):
+            return "finalizado"
+
+        return (trabajo.get("estado") or "pendiente").strip().lower()
+
+    def fecha_finalizacion_trabajo(trabajo):
+        candidatos = []
+
+        if trabajo.get("finalizado_at"):
+            candidatos.append(trabajo.get("finalizado_at"))
+
+        for act in trabajo.get("actividades") or []:
+            if act.get("finalizado_at"):
+                candidatos.append(act.get("finalizado_at"))
+
+        fechas_validas = []
+        for valor in candidatos:
+            try:
+                fecha_parseada = datetime.fromisoformat(valor.replace("Z", "+00:00"))
+                if fecha_parseada.tzinfo is not None:
+                    fecha_parseada = fecha_parseada.replace(tzinfo=None)
+                fechas_validas.append(fecha_parseada)
+            except Exception:
+                pass
+
+        if not fechas_validas:
+            return None
+
+        return max(fechas_validas)
+
+    campos_trabajo = [
+        "id",
+        "origen",
+        "responsable_nombre",
+        "vendedor_nombre",
+        "solicitante_nombre",
+        "descripcion",
+        "estado",
+        "actividades",
+        "created_at",
+        "updated_at",
+        "inicio_proceso_at",
+        "espera_desde",
+        "finalizado_at",
+    ]
+
+    trabajos_docs = db.collection("trabajos").select(campos_trabajo).stream()
+    trabajos_filtrados = []
+
+    for doc in trabajos_docs:
+        trabajo = doc.to_dict() or {}
+        estado_visual = estado_visual_trabajo_backend(trabajo)
+
+        if estado_visual in ["pendiente", "en_proceso", "pausado"]:
+            trabajos_filtrados.append(trabajo)
+            continue
+
+        if estado_visual == "finalizado":
+            fecha_fin = fecha_finalizacion_trabajo(trabajo)
+            if fecha_fin and inicio_dia <= fecha_fin < fin_dia:
+                trabajos_filtrados.append(trabajo)
+
+    trabajos = sorted(
+        trabajos_filtrados,
+        key=lambda t: int(t.get("id") or 0),
     )
 
-    trabajos = [doc.to_dict() for doc in trabajos_ref]
-    tecnicos = [doc.to_dict() for doc in tecnicos_ref]
+    tecnicos_docs = db.collection("tecnicos").select(["id", "nombre"]).stream()
+    tecnicos = sorted(
+        [doc.to_dict() for doc in tecnicos_docs],
+        key=lambda t: int(t.get("id") or 0),
+    )
 
-    return jsonify({"trabajos": trabajos, "tecnicos": tecnicos})
+    return jsonify(
+        {
+            "trabajos": trabajos,
+            "tecnicos": tecnicos,
+            "fecha": inicio_dia.strftime("%Y-%m-%d"),
+        }
+    )
+
+
+@app.route("/api/trabajo/<int:trabajo_id>")
+def api_trabajo_por_id(trabajo_id):
+    if not session.get("usuario_id"):
+        return jsonify({"error": "No autenticado"}), 401
+
+    trabajo_ref = db.collection("trabajos").document(str(trabajo_id))
+    trabajo_doc = trabajo_ref.get()
+
+    if not trabajo_doc.exists:
+        return jsonify({"error": "Trabajo no encontrado"}), 404
+
+    trabajo = trabajo_doc.to_dict() or {}
+
+    return jsonify({"trabajo": trabajo})
 
 
 @app.route("/trabajos/<int:trabajo_id>/editar", methods=["POST"])
