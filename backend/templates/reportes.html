@@ -554,12 +554,122 @@
 
         html += `</table>`;
 
-        // 🔥 TOTAL GENERAL
+        // 🔥 CALCULO DE TIEMPOS REALES
+
+        function parseFechaReporte(valor) {
+          if (!valor) return null;
+          const f = new Date(valor);
+          return isNaN(f.getTime()) ? null : f;
+        }
+
+        function tomarMenorFecha(actual, candidata) {
+          if (!candidata) return actual;
+          if (!actual) return candidata;
+          return candidata < actual ? candidata : actual;
+        }
+
+        function tomarMayorFecha(actual, candidata) {
+          if (!candidata) return actual;
+          if (!actual) return candidata;
+          return candidata > actual ? candidata : actual;
+        }
+
+        function obtenerFechaCierreTecnico(tec) {
+          return parseFechaReporte(
+            tec.finalizado_at || tec.liberado_at || tec.pausado_at,
+          );
+        }
+
+        function obtenerInicioTecnico(tec) {
+          const inicioDirecto = parseFechaReporte(
+            tec.asignado_at || tec.iniciado_at || tec.inicio_at,
+          );
+
+          if (inicioDirecto) return inicioDirecto;
+
+          const cierre = obtenerFechaCierreTecnico(tec);
+          const tiempoSeg = Number(tec.tiempo_acumulado_seg || 0);
+
+          if (cierre && tiempoSeg > 0) {
+            return new Date(cierre.getTime() - tiempoSeg * 1000);
+          }
+
+          return null;
+        }
+
+        const fechaCreacion = parseFechaReporte(trabajo.created_at);
+
+        let primeraAsignacion = null;
+        let ultimaFinalizacion = null;
+
+        actividades.forEach((act) => {
+          const activos = Array.isArray(act.tecnicos) ? act.tecnicos : [];
+          const historial = Array.isArray(act.historial_tecnicos)
+            ? act.historial_tecnicos
+            : [];
+
+          [...activos, ...historial].forEach((tec) => {
+            const fechaAsignacion = obtenerInicioTecnico(tec);
+            primeraAsignacion = tomarMenorFecha(
+              primeraAsignacion,
+              fechaAsignacion,
+            );
+
+            const fechaCierreTecnico = obtenerFechaCierreTecnico(tec);
+            ultimaFinalizacion = tomarMayorFecha(
+              ultimaFinalizacion,
+              fechaCierreTecnico,
+            );
+          });
+
+          const fechaInicioActividad = parseFechaReporte(act.inicio_proceso_at);
+          primeraAsignacion = tomarMenorFecha(
+            primeraAsignacion,
+            fechaInicioActividad,
+          );
+
+          const fechaFinalActividad = parseFechaReporte(
+            act.finalizado_at || act.no_realizada_at,
+          );
+          ultimaFinalizacion = tomarMayorFecha(
+            ultimaFinalizacion,
+            fechaFinalActividad,
+          );
+        });
+
+        const fechaFinalTrabajo = parseFechaReporte(trabajo.finalizado_at);
+        ultimaFinalizacion = tomarMayorFecha(
+          ultimaFinalizacion,
+          fechaFinalTrabajo,
+        );
+
+        // 🔹 cálculos
+        let tiempoEspera = 0;
+        let tiempoReal = 0;
+
+        if (
+          fechaCreacion &&
+          primeraAsignacion &&
+          primeraAsignacion >= fechaCreacion
+        ) {
+          tiempoEspera = (primeraAsignacion - fechaCreacion) / 60000;
+        }
+
+        if (
+          primeraAsignacion &&
+          ultimaFinalizacion &&
+          ultimaFinalizacion >= primeraAsignacion
+        ) {
+          tiempoReal = (ultimaFinalizacion - primeraAsignacion) / 60000;
+        }
+
+        // 🔥 MOSTRAR RESULTADO
+
         html += `
-    <h4 style="margin-top:20px;">
-      Total del trabajo: ${formatearMinutos(totalTrabajo)}
-    </h4>
-  `;
+  <h4 style="margin-top:20px;">Tiempo de espera: ${formatearMinutos(tiempoEspera)}</h4>
+  <h4>Tiempo real del trabajo: ${formatearMinutos(tiempoReal)}</h4>
+  <h4>Tiempo-hombre: ${formatearMinutos(totalTrabajo)}</h4>
+`;
 
         cont.innerHTML = html;
       }
