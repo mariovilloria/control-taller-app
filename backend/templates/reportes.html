@@ -340,7 +340,14 @@
           (ultimoResumenReportes.tecnicos.length === 0 &&
             ultimoResumenReportes.trabajos.length === 0)
         ) {
-          const res = await fetch("/api/resumen");
+          const hoy = new Date();
+          const yyyy = hoy.getFullYear();
+          const mm = String(hoy.getMonth() + 1).padStart(2, "0");
+          const dd = String(hoy.getDate()).padStart(2, "0");
+
+          const fechaHoy = `${yyyy}-${mm}-${dd}`;
+
+          const res = await fetch(`/api/resumen?fecha=${fechaHoy}`);
           const data = await res.json();
 
           ultimoResumenReportes = {
