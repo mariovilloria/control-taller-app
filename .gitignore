@@ -5,3 +5,4 @@ __pycache__/
 *.pyc
 copiar_prod_a_test.py
 crear_usuarios.py
+scripts_migracion/

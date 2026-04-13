@@ -172,6 +172,14 @@
         let desde = parseFechaInputLocal(filtros.fechaDesde, false);
         let hasta = parseFechaInputLocal(filtros.fechaHasta, true);
 
+        // Si no hay fecha visible seleccionada, usar la fecha cargada en memoria
+        if (!desde && !hasta && fechaActualCache) {
+          desde = parseFechaInputLocal(fechaActualCache, false);
+          hasta = parseFechaInputLocal(fechaActualCache, true);
+          return { desde, hasta };
+        }
+
+        // Respaldo final: hoy
         if (!desde && !hasta) {
           const hoy = new Date();
           desde = new Date(
@@ -341,31 +349,40 @@
       }
 
       async function cargarProductividad() {
-        if (!fechaActualCache) {
-          const hoy = new Date();
-          const yyyy = hoy.getFullYear();
-          const mm = String(hoy.getMonth() + 1).padStart(2, "0");
-          const dd = String(hoy.getDate()).padStart(2, "0");
+        const hoy = new Date();
+        const yyyy = hoy.getFullYear();
+        const mm = String(hoy.getMonth() + 1).padStart(2, "0");
+        const dd = String(hoy.getDate()).padStart(2, "0");
+        const fechaHoy = `${yyyy}-${mm}-${dd}`;
 
-          const fechaHoy = `${yyyy}-${mm}-${dd}`;
+        // En segundo plano sí usamos hoy
+        fechaActualCache = fechaHoy;
 
-          if (!cacheReportes[fechaHoy]) {
-            const res = await fetch(`/api/resumen?fecha=${fechaHoy}`);
-            const data = await res.json();
+        // Pero visualmente el campo queda vacío
+        document.getElementById("filtroFechaDesde").value = "";
+        document.getElementById("filtroFechaHasta").value = "";
 
-            cacheReportes[fechaHoy] = {
-              tecnicos: data.tecnicos || [],
-              trabajos: data.trabajos || [],
-            };
-          }
+        const inputRango = document.getElementById("filtroFechaRango");
+        if (inputRango) inputRango.value = "";
 
-          fechaActualCache = fechaHoy;
-
-          llenarFiltros(
-            obtenerResumenActual().tecnicos,
-            obtenerResumenActual().trabajos,
-          );
+        if (typeof pickerFechaRango !== "undefined" && pickerFechaRango) {
+          pickerFechaRango.clear();
         }
+
+        if (!cacheReportes[fechaHoy]) {
+          const res = await fetch(`/api/resumen?fecha=${fechaHoy}`);
+          const data = await res.json();
+
+          cacheReportes[fechaHoy] = {
+            tecnicos: data.tecnicos || [],
+            trabajos: data.trabajos || [],
+          };
+        }
+
+        llenarFiltros(
+          cacheReportes[fechaHoy].tecnicos,
+          cacheReportes[fechaHoy].trabajos,
+        );
 
         recalcularProductividadDesdeMemoria();
       }
@@ -906,7 +923,6 @@
           document.getElementById("detalle-tecnico").innerHTML = "";
         }
       }
-
       function limpiarFiltrosReportes() {
         document.getElementById("filtroTecnico").value = "";
         document.getElementById("filtroTipoResponsable").value = "";
@@ -922,7 +938,9 @@
         }
 
         limpiarDetalleTecnico();
-        recalcularProductividadDesdeMemoria();
+
+        // Volver al estado inicial: cargar HOY, pero sin mostrar la fecha en el campo
+        cargarProductividad();
       }
 
       function formatearMinutos(min) {

@@ -1059,20 +1059,24 @@ from datetime import datetime
 @app.route("/api/resumen")
 def api_resumen():
     try:
-        fecha = request.args.get("fecha")
+        from datetime import datetime, timedelta
 
-        from datetime import datetime
+        fecha = (request.args.get("fecha") or "").strip()
 
-        # 🔹 rango del día
-        hoy = datetime.now()
-        inicio_dia = datetime(hoy.year, hoy.month, hoy.day, 0, 0, 0)
-        fin_dia = datetime(hoy.year, hoy.month, hoy.day, 23, 59, 59)
+        # 🔹 usar la fecha enviada; si no viene, usar hoy
+        if fecha:
+            base = datetime.strptime(fecha, "%Y-%m-%d")
+        else:
+            base = datetime.now()
 
-        # 🔹 traer trabajos del día
+        inicio_dia = datetime(base.year, base.month, base.day, 0, 0, 0)
+        fin_dia = inicio_dia + timedelta(days=1)
+
+        # 🔹 traer trabajos del día seleccionado
         trabajos_docs = (
             db.collection("trabajos")
             .where("created_at", ">=", inicio_dia.isoformat())
-            .where("created_at", "<=", fin_dia.isoformat())
+            .where("created_at", "<", fin_dia.isoformat())
             .stream()
         )
 
@@ -1083,19 +1087,23 @@ def api_resumen():
             data = doc.to_dict()
             data["id"] = doc.id
             trabajos.append(data)
-            trabajo_ids.append(doc.id)
+
+            try:
+                trabajo_ids.append(int(doc.id))
+            except (TypeError, ValueError):
+                pass
 
         if not trabajos:
             return jsonify({"trabajos": [], "tecnicos": []})
 
-        # 🔥 dividir en bloques de 10 (límite Firestore)
+        # 🔹 dividir en bloques de 10 por límite de Firestore en "in"
         def dividir_en_bloques(lista, size=10):
             for i in range(0, len(lista), size):
                 yield lista[i : i + size]
 
         actividades_por_trabajo = {}
 
-        # 🔹 traer actividades SOLO de esos trabajos
+        # 🔹 traer solo actividades de esos trabajos
         for bloque in dividir_en_bloques(trabajo_ids, 10):
             actividades_docs = (
                 db.collection("actividades").where("trabajo_id", "in", bloque).stream()
@@ -1113,21 +1121,21 @@ def api_resumen():
                     "descripcion": act.get("descripcion"),
                     "estado": act.get("estado"),
                     "created_at": act.get("created_at"),
-                    "inicio_proceso_at": act.get("inicio_actual"),
+                    "inicio_proceso_at": act.get("inicio_actual_at"),
                     "finalizado_at": act.get("finalizado_at"),
                     "tecnicos": [],
                     "historial_tecnicos": [],
                 }
 
-                participantes = act.get("participantes", [])
+                participantes = act.get("participantes", []) or []
 
                 for p in participantes:
                     tecnico_data = {
                         "id": p.get("tecnico_id"),
                         "nombre": p.get("tecnico_nombre"),
                         "estado_en_trabajo": p.get("estado"),
-                        "asignado_at": p.get("inicio_actual"),
-                        "pausado_at": p.get("pausa_actual"),
+                        "asignado_at": p.get("inicio_actual_at"),
+                        "pausado_at": p.get("pausa_actual_at"),
                         "finalizado_at": p.get("finalizado_at"),
                         "tiempo_acumulado_seg": p.get("tiempo_real_seg", 0),
                     }
@@ -1142,11 +1150,11 @@ def api_resumen():
 
                 actividades_por_trabajo[trabajo_id].append(actividad_convertida)
 
-        # 🔹 pegar actividades
+        # 🔹 pegar actividades al trabajo
         for t in trabajos:
             t["actividades"] = actividades_por_trabajo.get(str(t["id"]), [])
 
-        # 🔹 técnicos (ligero)
+        # 🔹 técnicos
         tecnicos_docs = (
             db.collection("tecnicos")
             .select(["id", "nombre", "estado", "activo"])
