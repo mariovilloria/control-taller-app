@@ -105,7 +105,14 @@
     <a href="/panel" class="btn-volver">← Volver</a>
 
     <script>
-      let ultimoResumenReportes = { tecnicos: [], trabajos: [] };
+      function obtenerResumenActual() {
+        if (!fechaActualCache || !cacheReportes[fechaActualCache]) {
+          return { tecnicos: [], trabajos: [] };
+        }
+        return cacheReportes[fechaActualCache];
+      }
+      let cacheReportes = {};
+      let fechaActualCache = null;
       let ultimaProductividadCalculada = {};
 
       function obtenerFiltrosReportes() {
@@ -334,12 +341,7 @@
       }
 
       async function cargarProductividad() {
-        if (
-          !Array.isArray(ultimoResumenReportes.tecnicos) ||
-          !Array.isArray(ultimoResumenReportes.trabajos) ||
-          (ultimoResumenReportes.tecnicos.length === 0 &&
-            ultimoResumenReportes.trabajos.length === 0)
-        ) {
+        if (!fechaActualCache) {
           const hoy = new Date();
           const yyyy = hoy.getFullYear();
           const mm = String(hoy.getMonth() + 1).padStart(2, "0");
@@ -347,17 +349,21 @@
 
           const fechaHoy = `${yyyy}-${mm}-${dd}`;
 
-          const res = await fetch(`/api/resumen?fecha=${fechaHoy}`);
-          const data = await res.json();
+          if (!cacheReportes[fechaHoy]) {
+            const res = await fetch(`/api/resumen?fecha=${fechaHoy}`);
+            const data = await res.json();
 
-          ultimoResumenReportes = {
-            tecnicos: data.tecnicos || [],
-            trabajos: data.trabajos || [],
-          };
+            cacheReportes[fechaHoy] = {
+              tecnicos: data.tecnicos || [],
+              trabajos: data.trabajos || [],
+            };
+          }
+
+          fechaActualCache = fechaHoy;
 
           llenarFiltros(
-            ultimoResumenReportes.tecnicos,
-            ultimoResumenReportes.trabajos,
+            obtenerResumenActual().tecnicos,
+            obtenerResumenActual().trabajos,
           );
         }
 
@@ -388,7 +394,7 @@
         }
 
         const cont = document.getElementById("reporte-trabajo");
-        const trabajos = ultimoResumenReportes.trabajos || [];
+        const trabajos = obtenerResumenActual().trabajos || [];
 
         const trabajoEnMemoria = trabajos.find(
           (t) => String(t.id) === trabajoId,
@@ -451,15 +457,15 @@
         let totalTrabajo = 0;
 
         let html = `
-    <h3>Trabajo #${trabajo.id}</h3>
-    <p><strong>Descripción:</strong> ${trabajo.descripcion || ""}</p>
-    <table class="tabla-reportes">
-      <tr>
-        <th>Actividad</th>
-        <th>Técnico</th>
-        <th>Tiempo</th>
-      </tr>
-  `;
+      <h3>Trabajo #${trabajo.id}</h3>
+      <p><strong>Descripción:</strong> ${trabajo.descripcion || ""}</p>
+      <table class="tabla-reportes">
+        <tr>
+          <th>Actividad</th>
+          <th>Técnico</th>
+          <th>Tiempo</th>
+        </tr>
+    `;
 
         actividades.forEach((act) => {
           const activos = Array.isArray(act.tecnicos) ? act.tecnicos : [];
@@ -484,12 +490,12 @@
             resumenTecnicos[tec.nombre] += tiempoMin;
 
             html += `
-        <tr>
-          <td>${act.descripcion || ""}</td>
-          <td>${tec.nombre}</td>
-          <td>${formatearMinutos(tiempoMin)}</td>
-        </tr>
-      `;
+          <tr>
+            <td>${act.descripcion || ""}</td>
+            <td>${tec.nombre}</td>
+            <td>${formatearMinutos(tiempoMin)}</td>
+          </tr>
+        `;
           });
 
           // 🔹 ACTIVOS
@@ -522,12 +528,12 @@
             resumenTecnicos[tec.nombre] += tiempoMin;
 
             html += `
-        <tr>
-          <td>${act.descripcion || ""}</td>
-          <td>${tec.nombre}</td>
-          <td>${formatearMinutos(tiempoMin)}</td>
-        </tr>
-      `;
+          <tr>
+            <td>${act.descripcion || ""}</td>
+            <td>${tec.nombre}</td>
+            <td>${formatearMinutos(tiempoMin)}</td>
+          </tr>
+        `;
           });
         });
 
@@ -535,21 +541,21 @@
 
         // 🔥 RESUMEN POR TÉCNICO
         html += `
-    <h4 style="margin-top:20px;">Resumen por técnico</h4>
-    <table class="tabla-reportes">
-      <tr>
-        <th>Técnico</th>
-        <th>Tiempo total</th>
-      </tr>
-  `;
+      <h4 style="margin-top:20px;">Resumen por técnico</h4>
+      <table class="tabla-reportes">
+        <tr>
+          <th>Técnico</th>
+          <th>Tiempo total</th>
+        </tr>
+    `;
 
         Object.entries(resumenTecnicos).forEach(([nombre, tiempo]) => {
           html += `
-      <tr>
-        <td>${nombre}</td>
-        <td>${formatearMinutos(tiempo)}</td>
-      </tr>
-    `;
+        <tr>
+          <td>${nombre}</td>
+          <td>${formatearMinutos(tiempo)}</td>
+        </tr>
+      `;
         });
 
         html += `</table>`;
@@ -666,34 +672,39 @@
         // 🔥 MOSTRAR RESULTADO
 
         html += `
-  <h4 style="margin-top:20px;">Tiempo de espera: ${formatearMinutos(tiempoEspera)}</h4>
-  <h4>Tiempo real del trabajo: ${formatearMinutos(tiempoReal)}</h4>
-  <h4>Tiempo-hombre: ${formatearMinutos(totalTrabajo)}</h4>
-`;
+    <h4 style="margin-top:20px;">Tiempo de espera: ${formatearMinutos(tiempoEspera)}</h4>
+    <h4>Tiempo real del trabajo: ${formatearMinutos(tiempoReal)}</h4>
+    <h4>Tiempo-hombre: ${formatearMinutos(totalTrabajo)}</h4>
+  `;
 
         cont.innerHTML = html;
       }
-
       async function cargarResumenPorFecha() {
         const desde = document.getElementById("filtroFechaDesde")?.value;
 
-        let url = "/api/resumen";
+        if (!desde) return;
 
-        if (desde) {
-          url = `/api/resumen?fecha=${desde}`;
+        // 🔥 SI YA ESTÁ EN CACHE → NO CONSULTA FIRESTORE
+        if (cacheReportes[desde]) {
+          fechaActualCache = desde;
+          recalcularProductividadDesdeMemoria();
+          return;
         }
 
-        const res = await fetch(url);
+        // 🔴 SI NO → CONSULTA
+        const res = await fetch(`/api/resumen?fecha=${desde}`);
         const data = await res.json();
 
-        ultimoResumenReportes = {
+        cacheReportes[desde] = {
           tecnicos: data.tecnicos || [],
           trabajos: data.trabajos || [],
         };
 
+        fechaActualCache = desde;
+
         llenarFiltros(
-          ultimoResumenReportes.tecnicos,
-          ultimoResumenReportes.trabajos,
+          cacheReportes[desde].tecnicos,
+          cacheReportes[desde].trabajos,
         );
 
         recalcularProductividadDesdeMemoria();
@@ -701,8 +712,8 @@
       function recalcularProductividadDesdeMemoria() {
         limpiarReporteTrabajoSilencioso();
         const filtros = obtenerFiltrosReportes();
-        const tecnicos = ultimoResumenReportes.tecnicos || [];
-        const trabajos = ultimoResumenReportes.trabajos || [];
+        const tecnicos = obtenerResumenActual().tecnicos || [];
+        const trabajos = obtenerResumenActual().trabajos || [];
         const productividad = {};
 
         tecnicos.forEach((t) => {
@@ -934,8 +945,8 @@
         if (!cont) return;
 
         const filtros = obtenerFiltrosReportes();
-        const trabajos = Array.isArray(ultimoResumenReportes.trabajos)
-          ? ultimoResumenReportes.trabajos
+        const trabajos = Array.isArray(obtenerResumenActual().trabajos)
+          ? obtenerResumenActual().trabajos
           : [];
 
         let trabajosTotales = 0;
@@ -1032,19 +1043,19 @@
         });
 
         cont.innerHTML = `
-    <div class="tabla-reportes" style="margin-bottom: 16px;">
-      <table class="tabla-reportes">
-        <tr>
-          <th>Trabajos totales</th>
-          <th>Actividades totales</th>
-        </tr>
-        <tr>
-          <td>${trabajosTotales}</td>
-          <td>${actividadesTotales}</td>
-        </tr>
-      </table>
-    </div>
-  `;
+      <div class="tabla-reportes" style="margin-bottom: 16px;">
+        <table class="tabla-reportes">
+          <tr>
+            <th>Trabajos totales</th>
+            <th>Actividades totales</th>
+          </tr>
+          <tr>
+            <td>${trabajosTotales}</td>
+            <td>${actividadesTotales}</td>
+          </tr>
+        </table>
+      </div>
+    `;
       }
 
       function renderTabla(data) {
@@ -1052,14 +1063,14 @@
         const filtros = obtenerFiltrosReportes();
 
         let html = `
-          <table class="tabla-reportes">
-            <tr>
-              <th>Técnico</th>
-              <th>Actividades</th>
-              <th>Tiempo trabajado</th>
-              <th>Promedio por actividad</th>
-            </tr>
-        `;
+            <table class="tabla-reportes">
+              <tr>
+                <th>Técnico</th>
+                <th>Actividades</th>
+                <th>Tiempo trabajado</th>
+                <th>Promedio por actividad</th>
+              </tr>
+          `;
 
         let filasMostradas = 0;
         const hayFiltrosActivos =
@@ -1089,21 +1100,21 @@
             filasMostradas += 1;
 
             html += `
-              <tr onclick="seleccionarTecnicoDesdeTabla('${String(t.nombre || "").replace(/'/g, "\\'")}')" class="fila-seleccionable">
-                <td>${t.nombre}</td>
-                <td>${t.actividades}</td>
-                <td>${formatearMinutos(t.tiempo)}</td>
-                <td>${formatearMinutos(promedio)}</td>
-              </tr>
-            `;
+                <tr onclick="seleccionarTecnicoDesdeTabla('${String(t.nombre || "").replace(/'/g, "\\'")}')" class="fila-seleccionable">
+                  <td>${t.nombre}</td>
+                  <td>${t.actividades}</td>
+                  <td>${formatearMinutos(t.tiempo)}</td>
+                  <td>${formatearMinutos(promedio)}</td>
+                </tr>
+              `;
           });
 
         if (filasMostradas === 0) {
           html += `
-            <tr>
-              <td colspan="4">No hay resultados con los filtros seleccionados.</td>
-            </tr>
-          `;
+              <tr>
+                <td colspan="4">No hay resultados con los filtros seleccionados.</td>
+              </tr>
+            `;
         }
 
         html += `</table>`;
@@ -1161,10 +1172,10 @@
         });
 
         selectTipoResponsable.innerHTML = `
-          <option value="">Todos</option>
-          <option value="vendedor">Vendedores</option>
-          <option value="interno">Interno</option>
-        `;
+            <option value="">Todos</option>
+            <option value="vendedor">Vendedores</option>
+            <option value="interno">Interno</option>
+          `;
 
         if (
           tipoResponsableActual &&
@@ -1210,9 +1221,9 @@
           tecnico.detalles.length === 0
         ) {
           cont.innerHTML = `
-            <h3>Detalle de ${nombreTecnico}</h3>
-            <p>No hay actividades registradas con los filtros seleccionados.</p>
-          `;
+              <h3>Detalle de ${nombreTecnico}</h3>
+              <p>No hay actividades registradas con los filtros seleccionados.</p>
+            `;
           return;
         }
 
@@ -1224,41 +1235,41 @@
             );
 
             return `
-      <tr
-        class="fila-seleccionable ${(detalle.origen || "").toLowerCase() === "interno" ? "fila-interna" : ""}"
-        ${detalle.trabajoId ? `onclick="abrirDesdeDetalleTrabajo('${trabajoIdSeguro}')"` : ""}
-      >
-        <td>${detalle.trabajoId || ""}</td>
-        <td>${detalle.origen || ""}</td>
-        <td>${detalle.responsable || ""}</td>
-        <td>${detalle.detalleTrabajo || ""}</td>
-        <td>${detalle.actividad || ""}</td>
-        <td>${detalle.fecha || ""}</td>
-        <td>${formatearMinutos(detalle.tiempo || 0)}</td>
-        <td>${detalle.estado || ""}</td>
-      </tr>
-    `;
+        <tr
+          class="fila-seleccionable ${(detalle.origen || "").toLowerCase() === "interno" ? "fila-interna" : ""}"
+          ${detalle.trabajoId ? `onclick="abrirDesdeDetalleTrabajo('${trabajoIdSeguro}')"` : ""}
+        >
+          <td>${detalle.trabajoId || ""}</td>
+          <td>${detalle.origen || ""}</td>
+          <td>${detalle.responsable || ""}</td>
+          <td>${detalle.detalleTrabajo || ""}</td>
+          <td>${detalle.actividad || ""}</td>
+          <td>${detalle.fecha || ""}</td>
+          <td>${formatearMinutos(detalle.tiempo || 0)}</td>
+          <td>${detalle.estado || ""}</td>
+        </tr>
+      `;
           })
           .join("");
 
         cont.innerHTML = `
-          <h3>Detalle de ${nombreTecnico}</h3>
-          <div class="tabla-scroll-wrap">
-            <table class="tabla-reportes tabla-detalle">
-              <tr>
-                <th>Trabajo</th>
-                <th>Origen</th>
-                <th>Responsable</th>
-                <th>Detalle trabajo</th>
-                <th>Actividad</th>
-                <th>Fecha</th>
-                <th>Tiempo</th>
-                <th>Estado</th>
-              </tr>
-              ${filas}
-            </table>
-          </div>
-        `;
+            <h3>Detalle de ${nombreTecnico}</h3>
+            <div class="tabla-scroll-wrap">
+              <table class="tabla-reportes tabla-detalle">
+                <tr>
+                  <th>Trabajo</th>
+                  <th>Origen</th>
+                  <th>Responsable</th>
+                  <th>Detalle trabajo</th>
+                  <th>Actividad</th>
+                  <th>Fecha</th>
+                  <th>Tiempo</th>
+                  <th>Estado</th>
+                </tr>
+                ${filas}
+              </table>
+            </div>
+          `;
       }
 
       function limpiarDetalleTecnico() {

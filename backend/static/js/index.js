@@ -682,7 +682,13 @@ function htmlTecnicosActividad(trabajo, act) {
   <div class="tecnico-trabajo-top">
     <div class="tecnico-trabajo-nombre">${escapeHtml(p.tecnico_nombre || "Técnico")}</div>
     <div class="tecnico-trabajo-meta">
-      <span class="tecnico-trabajo-estado estado-${escapeHtml(claseEstadoParticipante(p))}">${escapeHtml(textoEstadoParticipante(p))}</span>
+      ${
+        String(act.estado || "").toLowerCase() === "finalizado"
+          ? ""
+          : `<span class="tecnico-trabajo-estado estado-${escapeHtml(claseEstadoParticipante(p))}">
+         ${escapeHtml(textoEstadoParticipante(p))}
+       </span>`
+      }
       <span class="tecnico-trabajo-tiempo">${escapeHtml(tiempoTrabajo)}</span>
     </div>
   </div>
@@ -3840,10 +3846,8 @@ async function asignarTecnico(
 
         participanteOrigen.estado = "liberado";
         participanteOrigen.activo = false;
-        participanteOrigen.visible_en_tarjeta = false;
         participanteOrigen.inicio_actual_at = null;
         participanteOrigen.pausa_actual_at = null;
-        participanteOrigen.finalizado_at = null;
 
         participantesOrigen[indexOrigen] = participanteOrigen;
 

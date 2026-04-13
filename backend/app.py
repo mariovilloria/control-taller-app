@@ -1053,117 +1053,117 @@ def actualizar_vendedor(vendedor_id):
     return redirect(url_for("vendedores_page", ok="actualizado"))
 
 
+from datetime import datetime
+
+
 @app.route("/api/resumen")
 def api_resumen():
-    if not session.get("usuario_id"):
-        return jsonify({"error": "No autenticado"}), 401
+    try:
+        fecha = request.args.get("fecha")
 
-    fecha = (request.args.get("fecha") or "").strip()
+        from datetime import datetime
 
-    if fecha:
-        inicio_dia = datetime.strptime(fecha, "%Y-%m-%d")
-    else:
-        inicio_dia = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        # 🔹 rango del día
+        hoy = datetime.now()
+        inicio_dia = datetime(hoy.year, hoy.month, hoy.day, 0, 0, 0)
+        fin_dia = datetime(hoy.year, hoy.month, hoy.day, 23, 59, 59)
 
-    fin_dia = inicio_dia + timedelta(days=1)
+        # 🔹 traer trabajos del día
+        trabajos_docs = (
+            db.collection("trabajos")
+            .where("created_at", ">=", inicio_dia.isoformat())
+            .where("created_at", "<=", fin_dia.isoformat())
+            .stream()
+        )
 
-    def estado_visual_trabajo_backend(trabajo):
-        actividades = trabajo.get("actividades") or []
+        trabajos = []
+        trabajo_ids = []
 
-        if not actividades:
-            return (trabajo.get("estado") or "pendiente").strip().lower()
+        for doc in trabajos_docs:
+            data = doc.to_dict()
+            data["id"] = doc.id
+            trabajos.append(data)
+            trabajo_ids.append(doc.id)
 
-        estados = [(a.get("estado") or "").strip().lower() for a in actividades]
+        if not trabajos:
+            return jsonify({"trabajos": [], "tecnicos": []})
 
-        if any(e == "en_proceso" for e in estados):
-            return "en_proceso"
+        # 🔥 dividir en bloques de 10 (límite Firestore)
+        def dividir_en_bloques(lista, size=10):
+            for i in range(0, len(lista), size):
+                yield lista[i : i + size]
 
-        if any(e == "pendiente" for e in estados):
-            return "pendiente"
+        actividades_por_trabajo = {}
 
-        if any(e == "pausado" for e in estados):
-            return "pausado"
+        # 🔹 traer actividades SOLO de esos trabajos
+        for bloque in dividir_en_bloques(trabajo_ids, 10):
+            actividades_docs = (
+                db.collection("actividades").where("trabajo_id", "in", bloque).stream()
+            )
 
-        if estados and all(e in ["finalizado", "no_realizada"] for e in estados):
-            return "finalizado"
+            for doc in actividades_docs:
+                act = doc.to_dict()
+                trabajo_id = str(act.get("trabajo_id"))
 
-        return (trabajo.get("estado") or "pendiente").strip().lower()
+                if not trabajo_id:
+                    continue
 
-    def fecha_finalizacion_trabajo(trabajo):
-        candidatos = []
+                actividad_convertida = {
+                    "id": doc.id,
+                    "descripcion": act.get("descripcion"),
+                    "estado": act.get("estado"),
+                    "created_at": act.get("created_at"),
+                    "inicio_proceso_at": act.get("inicio_actual"),
+                    "finalizado_at": act.get("finalizado_at"),
+                    "tecnicos": [],
+                    "historial_tecnicos": [],
+                }
 
-        if trabajo.get("finalizado_at"):
-            candidatos.append(trabajo.get("finalizado_at"))
+                participantes = act.get("participantes", [])
 
-        for act in trabajo.get("actividades") or []:
-            if act.get("finalizado_at"):
-                candidatos.append(act.get("finalizado_at"))
+                for p in participantes:
+                    tecnico_data = {
+                        "id": p.get("tecnico_id"),
+                        "nombre": p.get("tecnico_nombre"),
+                        "estado_en_trabajo": p.get("estado"),
+                        "asignado_at": p.get("inicio_actual"),
+                        "pausado_at": p.get("pausa_actual"),
+                        "finalizado_at": p.get("finalizado_at"),
+                        "tiempo_acumulado_seg": p.get("tiempo_real_seg", 0),
+                    }
 
-        fechas_validas = []
-        for valor in candidatos:
-            try:
-                fecha_parseada = datetime.fromisoformat(valor.replace("Z", "+00:00"))
-                if fecha_parseada.tzinfo is not None:
-                    fecha_parseada = fecha_parseada.replace(tzinfo=None)
-                fechas_validas.append(fecha_parseada)
-            except Exception:
-                pass
+                    if p.get("activo"):
+                        actividad_convertida["tecnicos"].append(tecnico_data)
+                    else:
+                        actividad_convertida["historial_tecnicos"].append(tecnico_data)
 
-        if not fechas_validas:
-            return None
+                if trabajo_id not in actividades_por_trabajo:
+                    actividades_por_trabajo[trabajo_id] = []
 
-        return max(fechas_validas)
+                actividades_por_trabajo[trabajo_id].append(actividad_convertida)
 
-    campos_trabajo = [
-        "id",
-        "origen",
-        "responsable_nombre",
-        "vendedor_nombre",
-        "solicitante_nombre",
-        "descripcion",
-        "estado",
-        "actividades",
-        "created_at",
-        "updated_at",
-        "inicio_proceso_at",
-        "espera_desde",
-        "finalizado_at",
-    ]
+        # 🔹 pegar actividades
+        for t in trabajos:
+            t["actividades"] = actividades_por_trabajo.get(str(t["id"]), [])
 
-    trabajos_docs = db.collection("trabajos").select(campos_trabajo).stream()
-    trabajos_filtrados = []
+        # 🔹 técnicos (ligero)
+        tecnicos_docs = (
+            db.collection("tecnicos")
+            .select(["id", "nombre", "estado", "activo"])
+            .stream()
+        )
 
-    for doc in trabajos_docs:
-        trabajo = doc.to_dict() or {}
-        estado_visual = estado_visual_trabajo_backend(trabajo)
+        tecnicos = []
+        for doc in tecnicos_docs:
+            data = doc.to_dict()
+            data["id"] = doc.id
+            tecnicos.append(data)
 
-        if estado_visual in ["pendiente", "en_proceso", "pausado"]:
-            trabajos_filtrados.append(trabajo)
-            continue
+        return jsonify({"trabajos": trabajos, "tecnicos": tecnicos})
 
-        if estado_visual == "finalizado":
-            fecha_fin = fecha_finalizacion_trabajo(trabajo)
-            if fecha_fin and inicio_dia <= fecha_fin < fin_dia:
-                trabajos_filtrados.append(trabajo)
-
-    trabajos = sorted(
-        trabajos_filtrados,
-        key=lambda t: int(t.get("id") or 0),
-    )
-
-    tecnicos_docs = db.collection("tecnicos").select(["id", "nombre"]).stream()
-    tecnicos = sorted(
-        [doc.to_dict() for doc in tecnicos_docs],
-        key=lambda t: int(t.get("id") or 0),
-    )
-
-    return jsonify(
-        {
-            "trabajos": trabajos,
-            "tecnicos": tecnicos,
-            "fecha": inicio_dia.strftime("%Y-%m-%d"),
-        }
-    )
+    except Exception as e:
+        print("Error en /api/resumen:", e)
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/trabajo/<int:trabajo_id>")
