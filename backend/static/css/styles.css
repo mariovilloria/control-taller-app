@@ -572,20 +572,30 @@ button:disabled {
 .actividad-header {
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    gap: 12px;
+    align-items: flex-start;
+    gap: 8px;
+    min-width: 0;
 }
 
 .actividad-descripcion {
+    flex: 1 1 auto;
+    min-width: 0;
     font-size: 14px;
     font-weight: 600;
     color: #101828;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 .actividad-lado-derecho {
-    display: flex;
-    align-items: center;
-    gap: 10px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 45%;
 }
 
 .actividad-estado {
@@ -624,6 +634,8 @@ button:disabled {
 .actividad-acciones {
     display: flex;
     gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
 }
 
 .btn-actividad {

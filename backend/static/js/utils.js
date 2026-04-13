@@ -641,6 +641,7 @@ function cancelarLogout() {
 }
 
 function ejecutarLogout() {
+  cerrarMenu();
   window.location.href = "/logout";
 }
 
@@ -731,5 +732,23 @@ function actualizarMenuSegunEstado() {
 
   if (cardCrearTrabajo) {
     cardCrearTrabajo.style.display = PUEDE_CREAR_TRABAJOS ? "block" : "none";
+  }
+}
+document.addEventListener("click", function (e) {
+  const menu = document.querySelector(".panel-menu");
+
+  if (!menu) return;
+
+  const clicDentro = menu.contains(e.target);
+
+  if (!clicDentro) {
+    menu.removeAttribute("open");
+  }
+});
+
+function cerrarMenu() {
+  const menu = document.querySelector(".panel-menu");
+  if (menu) {
+    menu.removeAttribute("open");
   }
 }

@@ -127,10 +127,7 @@
                 <button
                   id="menuReportes"
                   class="panel-menu-link"
-                  onclick="
-                    cerrarMenu();
-                    window.location.href = '/reportes';
-                  "
+                  onclick="window.location.href = '/reportes'"
                 >
                   Reportes
                 </button>
@@ -161,10 +158,7 @@
                 <button
                   id="btnCierreDia"
                   class="panel-menu-link danger-link"
-                  onclick="
-                    cerrarMenu();
-                    pedirCerrarDia();
-                  "
+                  onclick="pedirCerrarDia()"
                 >
                   Cierre de día
                 </button>
@@ -181,10 +175,7 @@
                 <a
                   href="#"
                   class="panel-menu-link logout-link"
-                  onclick="
-                    cerrarMenu();
-                    abrirModalLogout(event);
-                  "
+                  onclick="abrirModalLogout(event)"
                 >
                   Cerrar sesión
                 </a>
@@ -699,6 +690,12 @@
             Finalizar trabajo
           </button>
           <button
+            class="btn-principal"
+            onclick="resolverTrabajoSinTecnicos('pendiente')"
+          >
+            Enviar a pendiente
+          </button>
+          <button
             class="btn-secundario"
             onclick="resolverTrabajoSinTecnicos('pausado')"
           >
@@ -731,13 +728,15 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
     <script src="{{ url_for('static', filename='js/utils.js') }}"></script>
+    
     <script>
-      window.ES_ADMIN = {{ es_admin | tojson }};
-      window.USUARIO_ID_ACTUAL = Number({{ usuario_id | tojson }});
-      window.USUARIO_NOMBRE_ACTUAL = {{ usuario_nombre | tojson }};
-      window.firebaseConfig = {{ firebase_config | tojson }};
-      window.APP_ENV = {{ app_env | tojson }};
+      window.CONTROL_TALLER_CONFIG = {
+        firebaseConfig: {{ firebase_config | tojson }},
+        appEnv: {{ app_env | tojson }},
+        esAdmin: {{ es_admin | tojson }},
+        usuarioIdActual: {{ usuario_id | tojson }}
+      };
     </script>
     <script src="{{ url_for('static', filename='js/index.js') }}"></script>
-  </body>
+</body>
 </html>
