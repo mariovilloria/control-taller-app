@@ -4627,11 +4627,13 @@ async function cerrarActividad(trabajoId, actividadId) {
       return estado === "pendiente" && !tuvoParticipacion;
     });
 
-    await batch.commit();
-
     if (!hayEnProceso && pendientesSinTecnico.length > 0) {
+      finalizarAccion(clave);
       pedirFinalizarTrabajo(trabajoId);
+      return;
     }
+
+    await batch.commit();
   } catch (error) {
     console.error("Error cerrando actividad:", error);
     alert("No se pudo cerrar la actividad.");
@@ -5334,7 +5336,6 @@ async function finalizarTrabajoCompleto(trabajoId) {
         estado: "finalizado",
         ultima_actividad_at: ahoraIso,
         finalizado_at: ahoraIso,
-        no_realizada_at: null,
         ultima_reanudacion_at: null,
         ultima_pausa_at: null,
         inicio_tramo_activo_at: null,
