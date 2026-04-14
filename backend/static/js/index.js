@@ -1232,7 +1232,18 @@ ${escapeHtml(textoCuenta)}
 </div>
 `;
 }
+function resumenRapidoTrabajo(trabajoActual) {
+  if (!trabajoActual) return "Sin trabajo asignado";
 
+  const detalle = trabajoActual.descripcion
+    ? String(trabajoActual.descripcion)
+    : "Sin detalle";
+
+  const detalleCorto =
+    detalle.length > 55 ? detalle.substring(0, 55) + "..." : detalle;
+
+  return `${detalleCorto} · ${nombreResponsable(trabajoActual)}`;
+}
 function htmlResumenColapsadoTecnico(tecnico, trabajoActual) {
   if (tecnico.estado !== "almuerzo") {
     return `<div class="tecnico-resumen-colapsado">${escapeHtml(resumenRapidoTrabajo(trabajoActual))}</div>`;
@@ -3423,8 +3434,19 @@ function renderizarTecnicosAsignacion() {
     };
 
     const cargaTecnico = (t) => {
-      if (!t?.id || typeof numeroActividadesHoyTecnico !== "function") return 0;
-      return Number(numeroActividadesHoyTecnico(t.id) || 0);
+      if (!t?.id || typeof obtenerCargaActualTecnico !== "function") {
+        return {
+          actividadesHoy: 0,
+          tiempoHoySeg: 0,
+        };
+      }
+
+      const carga = obtenerCargaActualTecnico(t.id) || {};
+
+      return {
+        actividadesHoy: Number(carga.actividadesHoy || 0),
+        tiempoHoySeg: Number(carga.tiempoHoySeg || 0),
+      };
     };
 
     const ga = grupoTecnico(a);
@@ -3444,11 +3466,15 @@ function renderizarTecnicosAsignacion() {
 
     if (pa !== pb) return pa - pb;
 
-    const actividadesA = cargaTecnico(a);
-    const actividadesB = cargaTecnico(b);
+    const cargaA = cargaTecnico(a);
+    const cargaB = cargaTecnico(b);
 
-    if (actividadesA !== actividadesB) {
-      return actividadesA - actividadesB;
+    if (cargaA.actividadesHoy !== cargaB.actividadesHoy) {
+      return cargaA.actividadesHoy - cargaB.actividadesHoy;
+    }
+
+    if (cargaA.tiempoHoySeg !== cargaB.tiempoHoySeg) {
+      return cargaA.tiempoHoySeg - cargaB.tiempoHoySeg;
     }
 
     return (a.nombre || "").localeCompare(b.nombre || "", "es", {

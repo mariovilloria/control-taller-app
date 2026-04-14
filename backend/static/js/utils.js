@@ -186,10 +186,33 @@ function formatearTiempoRestante(segundos) {
 function segundosTecnicoActivo(tecnico) {
   if (!tecnico) return 0;
 
-  let acumulado = Number(tecnico.tiempo_acumulado_seg || 0);
+  const estado = String(
+    tecnico.estado_en_trabajo || tecnico.estado || "",
+  ).toLowerCase();
 
-  if (tecnico.estado_en_trabajo === "trabajando" && tecnico.asignado_at) {
-    const inicio = new Date(tecnico.asignado_at);
+  const inicioActual =
+    tecnico.inicio_actual_at ||
+    tecnico.asignado_at ||
+    tecnico.inicio_at ||
+    null;
+
+  let acumulado = Number(
+    tecnico.tiempo_real_seg ??
+      tecnico.tiempo_acumulado_seg ??
+      tecnico.total_trabajado_seg ??
+      0,
+  );
+
+  if (!Number.isFinite(acumulado) || acumulado < 0) {
+    acumulado = 0;
+  }
+
+  const sigueActivo =
+    tecnico.activo !== false &&
+    (estado === "activo" || estado === "trabajando");
+
+  if (sigueActivo && inicioActual) {
+    const inicio = new Date(inicioActual);
     const ahora = new Date();
 
     if (
@@ -201,14 +224,17 @@ function segundosTecnicoActivo(tecnico) {
     }
   }
 
-  return acumulado;
+  return Math.max(0, acumulado);
 }
 
 function obtenerTiempoGuardadoTecnico(tecnicoData) {
   if (!tecnicoData) return 0;
 
   const valor = Number(
-    tecnicoData.tiempo_acumulado_seg ?? tecnicoData.total_trabajado_seg ?? 0,
+    tecnicoData.tiempo_real_seg ??
+      tecnicoData.tiempo_acumulado_seg ??
+      tecnicoData.total_trabajado_seg ??
+      0,
   );
 
   return Number.isFinite(valor) && valor >= 0 ? valor : 0;
@@ -221,31 +247,20 @@ function cerrarTiempoTecnicoEnTrabajo(
   if (!tecnicoTrabajo) return null;
 
   const copia = { ...tecnicoTrabajo };
-  let acumulado = Number(copia.tiempo_acumulado_seg || 0);
-
-  if (!Number.isFinite(acumulado) || acumulado < 0) {
-    acumulado = 0;
-  }
-
-  if (copia.estado_en_trabajo === "trabajando" && copia.asignado_at) {
-    const inicio = new Date(copia.asignado_at);
-    const ahora = new Date();
-
-    if (
-      !isNaN(inicio.getTime()) &&
-      !isNaN(ahora.getTime()) &&
-      ahora >= inicio
-    ) {
-      acumulado += Math.floor((ahora - inicio) / 1000);
-    }
-  }
-
   const ahoraIso = new Date().toISOString();
+  const acumulado = segundosTecnicoActivo(copia);
 
+  copia.tiempo_real_seg = Math.max(0, acumulado);
   copia.tiempo_acumulado_seg = Math.max(0, acumulado);
+
+  copia.estado = estadoSalida || "pausado";
   copia.estado_en_trabajo = estadoSalida || "pausado";
+  copia.activo = false;
+
+  copia.inicio_actual_at = null;
   copia.asignado_at = null;
 
+  copia.pausa_actual_at = null;
   copia.pausado_at = null;
   copia.finalizado_at = null;
   copia.liberado_at = null;
@@ -253,9 +268,8 @@ function cerrarTiempoTecnicoEnTrabajo(
   if (estadoSalida === "finalizado") {
     copia.finalizado_at = ahoraIso;
   } else if (estadoSalida === "pausado") {
+    copia.pausa_actual_at = ahoraIso;
     copia.pausado_at = ahoraIso;
-  } else if (estadoSalida === "pendiente") {
-    copia.liberado_at = ahoraIso;
   } else {
     copia.liberado_at = ahoraIso;
   }
@@ -293,27 +307,19 @@ function segundosHistorialTrabajo(historial, tecnicoActivo) {
 
     total = Math.max(total, tiempoGuardadoActivo);
 
-    if (tecnicoActivo.estado_en_trabajo === "trabajando") {
-      total += Math.max(0, tiempoActivoActual - tiempoGuardadoActivo);
+    const estado = String(
+      tecnicoActivo.estado_en_trabajo || tecnicoActivo.estado || "",
+    ).toLowerCase();
+
+    if (
+      tecnicoActivo.activo !== false &&
+      (estado === "activo" || estado === "trabajando")
+    ) {
+      total = Math.max(total, tiempoActivoActual);
     }
   }
 
   return Math.max(0, total);
-}
-
-// ===== Resumen =====
-
-function resumenRapidoTrabajo(trabajoActual) {
-  if (!trabajoActual) return "Sin trabajo asignado";
-
-  const detalle = trabajoActual.descripcion
-    ? String(trabajoActual.descripcion)
-    : "Sin detalle";
-
-  const detalleCorto =
-    detalle.length > 55 ? detalle.substring(0, 55) + "..." : detalle;
-
-  return `${detalleCorto} · ${nombreResponsable(trabajoActual)}`;
 }
 
 function obtenerCargaActualTecnico(tecnicoId) {
@@ -381,71 +387,47 @@ function obtenerCargaActualTecnico(tecnicoId) {
       : [];
 
     actividades.forEach((actividad) => {
-      const activos = Array.isArray(actividad?.tecnicos)
-        ? actividad.tecnicos
-        : [];
-      const historial = Array.isArray(actividad?.historial_tecnicos)
-        ? actividad.historial_tecnicos
+      const participantes = Array.isArray(actividad?.participantes)
+        ? actividad.participantes
         : [];
 
-      const tecnicoActivo = activos.find(
-        (t) => Number(t?.id) === Number(tecnicoId),
+      const participante = participantes.find(
+        (p) => Number(p?.tecnico_id) === Number(tecnicoId),
       );
 
-      const tecnicoHistorial = historial.find(
-        (h) => Number(h?.id) === Number(tecnicoId),
-      );
+      if (!participante) return;
 
-      if (tecnicoActivo) {
+      const estado = String(participante?.estado || "").toLowerCase();
+      const sigueActivo = participante?.activo !== false && estado === "activo";
+
+      const inicioParticipacion =
+        participante?.asignado_at ||
+        participante?.inicio_actual_at ||
+        actividad?.primer_inicio_at ||
+        actividad?.created_at ||
+        trabajo?.created_at ||
+        null;
+
+      const finParticipacion = sigueActivo
+        ? new Date().toISOString()
+        : participante?.finalizado_at ||
+          participante?.pausa_actual_at ||
+          actividad?.finalizado_at ||
+          actividad?.ultima_pausa_at ||
+          actividad?.ultima_actividad_at ||
+          inicioParticipacion;
+
+      if (!cruzaHoy(inicioParticipacion, finParticipacion)) return;
+
+      const tiempoParticipante = segundosTecnicoActivo(participante);
+      tiempoHoySeg += tiempoParticipante;
+
+      if (sigueActivo) {
         actividadesActivas += 1;
-
-        const segActual = segundosTecnicoActivo(tecnicoActivo);
-        tiempoActivoSeg += segActual;
-
-        const inicioActivo =
-          tecnicoActivo.asignado_at ||
-          actividad.inicio_proceso_at ||
-          actividad.created_at ||
-          trabajo.created_at ||
-          actividad.finalizado_at;
-
-        const finActivo =
-          tecnicoActivo.estado_en_trabajo === "trabajando"
-            ? new Date().toISOString()
-            : tecnicoActivo.liberado_at ||
-              tecnicoActivo.pausado_at ||
-              tecnicoActivo.finalizado_at ||
-              actividad.finalizado_at ||
-              inicioActivo;
-
-        if (cruzaHoy(inicioActivo, finActivo)) {
-          tiempoHoySeg += segActual;
-        }
-
-        return;
+        tiempoActivoSeg += tiempoParticipante;
+      } else {
+        actividadesCerradasHoy += 1;
       }
-
-      if (!tecnicoHistorial) return;
-
-      const inicioHistorial =
-        tecnicoHistorial.asignado_at ||
-        tecnicoHistorial.iniciado_at ||
-        tecnicoHistorial.inicio_at ||
-        actividad.inicio_proceso_at ||
-        actividad.created_at ||
-        actividad.finalizado_at ||
-        trabajo.created_at;
-
-      const finHistorial =
-        tecnicoHistorial.pausado_at ||
-        tecnicoHistorial.finalizado_at ||
-        actividad.finalizado_at ||
-        inicioHistorial;
-
-      if (!cruzaHoy(inicioHistorial, finHistorial)) return;
-
-      actividadesCerradasHoy += 1;
-      tiempoHoySeg += obtenerTiempoGuardadoTecnico(tecnicoHistorial);
     });
   });
 
