@@ -63,6 +63,10 @@ function enfocarSiguienteCampoCreacion(origen) {
     if (origen === "interno") {
       const inputSolicitante = document.getElementById("solicitanteInterno");
       if (inputSolicitante) {
+        inputSolicitante.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
         inputSolicitante.focus();
         inputSolicitante.select();
       }
@@ -71,13 +75,17 @@ function enfocarSiguienteCampoCreacion(origen) {
 
     const textareaDescripcion = document.getElementById("descripcion");
     if (textareaDescripcion) {
+      textareaDescripcion.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
       textareaDescripcion.focus();
       textareaDescripcion.setSelectionRange(
         textareaDescripcion.value.length,
         textareaDescripcion.value.length,
       );
     }
-  }, 50);
+  }, 80);
 }
 
 async function cargarVendedores() {
@@ -725,11 +733,17 @@ function htmlTecnicosActividad(trabajo, act) {
     const infoAlmuerzo = participanteEstaEnAlmuerzo(p)
       ? obtenerInfoAlmuerzoParticipante(p)
       : "";
+    const estadoActividad = String(act?.estado || "").toLowerCase();
+    const estadoParticipante = String(p?.estado || "").toLowerCase();
+
+    const puedePausarParticipacion =
+      estadoActividad !== "finalizado" && estadoParticipante === "activo";
+
     const puedeReanudar =
-      String(act?.estado || "").toLowerCase() === "en_proceso" &&
-      String(p?.estado || "").toLowerCase() === "pausado" &&
-      !participanteEstaEnAlmuerzo(p) &&
-      tecnicoDisponibleParaReanudarParticipacion(p?.tecnico_id);
+      estadoActividad !== "finalizado" && estadoParticipante === "pausado";
+
+    const puedeFinalizarParticipacion =
+      estadoActividad !== "finalizado" && estadoParticipante !== "finalizado";
 
     return `
 <div class="tecnico-trabajo-item" style="margin-top:8px;">
@@ -756,37 +770,48 @@ ${escapeHtml(infoAlmuerzo)}
   }
 
 ${
-  esActivo && puedeGestionar()
+  puedeGestionar() &&
+  (puedePausarParticipacion || puedeReanudar || puedeFinalizarParticipacion)
     ? `
 <div class="tecnico-trabajo-acciones" onclick="event.stopPropagation()">
+  ${
+    puedePausarParticipacion
+      ? `
   <button
     type="button"
     class="btn-icono-trabajo pausar"
     title="Pausar participación"
     onclick='event.stopPropagation(); pedirPausarParticipacion(${trabajo.id}, ${JSON.stringify(act.id || "")}, ${Number(p.tecnico_id)})'
   >⏸</button>
+  `
+      : ""
+  }
 
-  <button
-    type="button"
-    class="btn-icono-trabajo finalizar"
-    title="Finalizar participación"
-    onclick="event.stopPropagation(); pedirLiberarTecnico(${trabajo.id}, ${JSON.stringify(p.tecnico_id)})"
-  >✓</button>
-</div>
-`
-    : ""
-}
-
-${
-  puedeReanudar && puedeGestionar()
-    ? `
-<div class="tecnico-trabajo-acciones" onclick="event.stopPropagation()">
+  ${
+    puedeReanudar
+      ? `
   <button
     type="button"
     class="btn-icono-trabajo reanudar"
     title="Reanudar participación"
     onclick='event.stopPropagation(); reanudarParticipacionEnActividad(${trabajo.id}, ${JSON.stringify(act.id || "")}, ${Number(p.tecnico_id)})'
   >▶</button>
+  `
+      : ""
+  }
+
+  ${
+    puedeFinalizarParticipacion
+      ? `
+  <button
+    type="button"
+    class="btn-icono-trabajo finalizar"
+    title="Finalizar participación"
+    onclick='event.stopPropagation(); pedirLiberarTecnico(${trabajo.id}, ${JSON.stringify(act.id || "")}, ${Number(p.tecnico_id)})'
+  >✓</button>
+  `
+      : ""
+  }
 </div>
 `
     : ""
@@ -3706,10 +3731,7 @@ function renderizarTecnicosAsignacion() {
         disabledAttr = "disabled";
         onclickBoton = "";
       } else if (mismoTrabajo) {
-        textoBoton = "Ya está en este trabajo";
-        claseBoton = "btn-secundario btn-asignar-card";
-        disabledAttr = "disabled";
-        onclickBoton = "";
+        textoBoton = "Mover a esta actividad";
       } else if (estado === "trabajando" && trabajoActual) {
         textoBoton = "Mover a esta actividad";
       } else if (estado === "almuerzo") {
@@ -3814,6 +3836,197 @@ function cerrarModalAsignacion() {
   document.getElementById("modalAsignacion").style.display = "none";
 }
 
+function pedirDecisionParticipacionOrigenV2({
+  trabajo,
+  actividad,
+  tecnico,
+  esUltimoActivo = false,
+}) {
+  return new Promise((resolve) => {
+    const existente = document.getElementById(
+      "modalDecisionParticipacionOrigenV2",
+    );
+    if (existente) existente.remove();
+
+    const nombreTecnico =
+      tecnico?.tecnico_nombre || tecnico?.nombre || "Técnico";
+    const nombreActividad = actividad?.descripcion || "Actividad";
+    const nombreTrabajo = trabajo?.descripcion || "Sin descripción";
+    const responsable = nombreResponsable(trabajo || {}) || "Sin responsable";
+
+    const texto = esUltimoActivo
+      ? "Este técnico es el último activo en su actividad actual. Debes decidir qué pasará con su participación antes de moverlo."
+      : "Este técnico ya participa en otra actividad. Debes decidir qué hacer con su participación actual antes de moverlo.";
+
+    const overlay = document.createElement("div");
+    overlay.id = "modalDecisionParticipacionOrigenV2";
+    overlay.style.position = "fixed";
+    overlay.style.inset = "0";
+    overlay.style.background = "rgba(15, 23, 42, 0.55)";
+    overlay.style.display = "flex";
+    overlay.style.alignItems = "center";
+    overlay.style.justifyContent = "center";
+    overlay.style.zIndex = "9999";
+    overlay.style.padding = "16px";
+
+    overlay.innerHTML = `
+<div style="
+  width:100%;
+  max-width:620px;
+  background:#ffffff;
+  border-radius:16px;
+  box-shadow:0 20px 50px rgba(0,0,0,0.25);
+  padding:20px;
+  max-height:90vh;
+  overflow:auto;
+">
+  <div style="font-size:20px; font-weight:700; color:#0f172a; margin-bottom:10px;">
+    Decidir participación origen
+  </div>
+
+  <div style="font-size:14px; color:#475569; line-height:1.5;">
+    ${escapeHtml(texto)}
+  </div>
+
+  <div style="margin-top:12px; padding:12px; border:1px solid #d9dee7; border-radius:12px; background:#f8fafc;">
+    <div><strong>Técnico:</strong> ${escapeHtml(nombreTecnico)}</div>
+    <div style="margin-top:4px;"><strong>Actividad actual:</strong> ${escapeHtml(nombreActividad)}</div>
+    <div style="margin-top:4px;"><strong>Trabajo actual:</strong> ${escapeHtml(nombreTrabajo)}</div>
+    <div style="margin-top:4px;"><strong>Responsable:</strong> ${escapeHtml(responsable)}</div>
+  </div>
+
+  <div style="margin-top:10px; font-size:13px; color:#475569;">
+    <strong>Pausar participación</strong>: el técnico sale temporalmente de esa actividad.<br>
+    <strong>Finalizar participación</strong>: el técnico deja cerrada su participación en esa actividad.
+  </div>
+
+  <div style="display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap; margin-top:18px;">
+    <button id="btnPausarParticipacionOrigenV2" type="button" style="padding:10px 14px; border:none; border-radius:10px; background:#475569; color:#fff; font-weight:600; cursor:pointer;">
+      Pausar participación
+    </button>
+    <button id="btnFinalizarParticipacionOrigenV2" type="button" style="padding:10px 14px; border:none; border-radius:10px; background:#16a34a; color:#fff; font-weight:600; cursor:pointer;">
+      Finalizar participación
+    </button>
+    <button id="btnCancelarParticipacionOrigenV2" type="button" style="padding:10px 14px; border:1px solid #cbd5e1; border-radius:10px; background:#fff; color:#0f172a; font-weight:600; cursor:pointer;">
+      Cancelar
+    </button>
+  </div>
+</div>
+`;
+
+    const cerrar = (accion = "__cancelar__") => {
+      overlay.remove();
+      resolve(accion);
+    };
+
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) cerrar("__cancelar__");
+    });
+
+    document.body.appendChild(overlay);
+
+    document.getElementById("btnPausarParticipacionOrigenV2").onclick = () =>
+      cerrar("pausado");
+
+    document.getElementById("btnFinalizarParticipacionOrigenV2").onclick = () =>
+      cerrar("finalizado");
+
+    document.getElementById("btnCancelarParticipacionOrigenV2").onclick = () =>
+      cerrar("__cancelar__");
+  });
+}
+
+async function resolverSalidaParticipacionOrigenV2({
+  tecnico,
+  trabajoDestino,
+  actividadDestinoId,
+  accionPredefinida = null,
+}) {
+  const tecnicoId = Number(tecnico?.id || 0);
+  const trabajoActualId =
+    tecnico?.trabajo_id != null ? Number(tecnico.trabajo_id) : null;
+
+  if (!tecnicoId || trabajoActualId == null) {
+    return { ok: true, actividadOrigen: null, trabajoOrigen: null };
+  }
+
+  let trabajoOrigen = null;
+  let actividadOrigen = null;
+
+  if (trabajoActualId === Number(trabajoDestino?.id)) {
+    const actividadesMismoTrabajo = Array.isArray(trabajoDestino?.actividades)
+      ? trabajoDestino.actividades
+      : [];
+
+    actividadOrigen =
+      actividadesMismoTrabajo.find((a) => {
+        const actividadId = String(a?.id || "").trim();
+        const participantes = Array.isArray(a?.participantes)
+          ? a.participantes
+          : [];
+
+        return (
+          actividadId !== String(actividadDestinoId || "").trim() &&
+          participantes.some(
+            (p) =>
+              Number(p?.tecnico_id) === tecnicoId &&
+              p?.activo !== false &&
+              String(p?.estado || "").toLowerCase() === "activo",
+          )
+        );
+      }) || null;
+
+    trabajoOrigen = trabajoDestino || null;
+  } else {
+    const trabajoOrigenRef = window.db
+      .collection("trabajos")
+      .doc(String(trabajoActualId));
+
+    const trabajoOrigenSnap = await trabajoOrigenRef.get();
+    if (trabajoOrigenSnap.exists) {
+      trabajoOrigen = trabajoOrigenSnap.data() || null;
+    }
+
+    actividadOrigen =
+      (await buscarActividadActivaDelTecnicoV2(trabajoActualId, tecnicoId)) ||
+      null;
+  }
+
+  if (!actividadOrigen) {
+    return { ok: true, actividadOrigen: null, trabajoOrigen };
+  }
+
+  const cantidadActivosOrigen = Array.isArray(
+    actividadOrigen.tecnicos_activos_ids,
+  )
+    ? actividadOrigen.tecnicos_activos_ids.length
+    : 0;
+
+  let accion = accionPredefinida;
+
+  if (!accion) {
+    accion = await pedirDecisionParticipacionOrigenV2({
+      trabajo: trabajoOrigen || trabajoDestino,
+      actividad: actividadOrigen,
+      tecnico,
+      esUltimoActivo: cantidadActivosOrigen <= 1,
+    });
+  }
+
+  if (!accion || accion === "__cancelar__") {
+    return { ok: false, actividadOrigen, trabajoOrigen };
+  }
+
+  await liberarTecnicoDeTrabajo(
+    Number(actividadOrigen.trabajo_id),
+    tecnicoId,
+    accion,
+    actividadOrigen.id,
+  );
+
+  return { ok: true, actividadOrigen, trabajoOrigen, accion };
+}
+
 async function asignarTecnico(
   trabajoId,
   tecnicoId,
@@ -3871,9 +4084,6 @@ async function asignarTecnico(
       return;
     }
 
-    const tecnicoTrabajoActual =
-      tecnico.trabajo_id != null ? Number(tecnico.trabajo_id) : null;
-
     const actividadesDestinoSnap = await window.db
       .collection("actividades")
       .where("trabajo_id", "==", Number(trabajoId))
@@ -3884,7 +4094,7 @@ async function asignarTecnico(
       doc.id === actividadId ? { ...doc.data(), id_doc: doc.id } : doc.data(),
     );
 
-    const actividadDestinoIndex = actividadesDestino.findIndex(
+    let actividadDestinoIndex = actividadesDestino.findIndex(
       (a) => String(a?.id || "").trim() === actividadId,
     );
 
@@ -3893,35 +4103,39 @@ async function asignarTecnico(
       return;
     }
 
-    const actividadDestino = { ...actividadesDestino[actividadDestinoIndex] };
+    let actividadDestinoActual = {
+      ...actividadesDestino[actividadDestinoIndex],
+    };
 
-    const tecnicosActivosIds = Array.isArray(
-      actividadDestino.tecnicos_activos_ids,
+    let tecnicosActivosIds = Array.isArray(
+      actividadDestinoActual.tecnicos_activos_ids,
     )
-      ? [...actividadDestino.tecnicos_activos_ids]
+      ? [...actividadDestinoActual.tecnicos_activos_ids]
       : [];
-    const tecnicosActivosNombres = Array.isArray(
-      actividadDestino.tecnicos_activos_nombres,
+    let tecnicosActivosNombres = Array.isArray(
+      actividadDestinoActual.tecnicos_activos_nombres,
     )
-      ? [...actividadDestino.tecnicos_activos_nombres]
+      ? [...actividadDestinoActual.tecnicos_activos_nombres]
       : [];
-    const tecnicosParticipantesIds = Array.isArray(
-      actividadDestino.tecnicos_participantes_ids,
+    let tecnicosParticipantesIds = Array.isArray(
+      actividadDestinoActual.tecnicos_participantes_ids,
     )
-      ? [...actividadDestino.tecnicos_participantes_ids]
+      ? [...actividadDestinoActual.tecnicos_participantes_ids]
       : [];
-    const ultimoTecnicosIds = Array.isArray(
-      actividadDestino.ultimo_tecnicos_ids,
+    let ultimoTecnicosIds = Array.isArray(
+      actividadDestinoActual.ultimo_tecnicos_ids,
     )
-      ? [...actividadDestino.ultimo_tecnicos_ids]
+      ? [...actividadDestinoActual.ultimo_tecnicos_ids]
       : [];
-    const ultimoTecnicosNombres = Array.isArray(
-      actividadDestino.ultimo_tecnicos_nombres,
+    let ultimoTecnicosNombres = Array.isArray(
+      actividadDestinoActual.ultimo_tecnicos_nombres,
     )
-      ? [...actividadDestino.ultimo_tecnicos_nombres]
+      ? [...actividadDestinoActual.ultimo_tecnicos_nombres]
       : [];
-    const participantesDestino = Array.isArray(actividadDestino.participantes)
-      ? [...actividadDestino.participantes]
+    let participantesDestino = Array.isArray(
+      actividadDestinoActual.participantes,
+    )
+      ? [...actividadDestinoActual.participantes]
       : [];
 
     if (tecnicosActivosIds.some((id) => Number(id) === Number(tecnicoId))) {
@@ -3929,252 +4143,79 @@ async function asignarTecnico(
       return;
     }
 
-    let trabajoOrigenRef = null;
-    let trabajoOrigen = null;
-    let actividadOrigenRef = null;
-    let actividadOrigen = null;
-    let actividadesOrigen = [];
-    let mismoTrabajo = false;
+    const salidaOrigen = await resolverSalidaParticipacionOrigenV2({
+      tecnico,
+      trabajoDestino: {
+        ...trabajo,
+        actividades: actividadesDestino,
+      },
+      actividadDestinoId: actividadId,
+      accionPredefinida: accionOrigenSiVacio,
+    });
 
-    if (tecnicoTrabajoActual !== null) {
-      mismoTrabajo = tecnicoTrabajoActual === Number(trabajoId);
-
-      if (mismoTrabajo) {
-        actividadOrigen = actividadesDestino.find((a) => {
-          const participantes = Array.isArray(a?.participantes)
-            ? a.participantes
-            : [];
-
-          return (
-            String(a?.id || "").trim() !== actividadId &&
-            participantes.some(
-              (p) =>
-                Number(p?.tecnico_id) === Number(tecnicoId) &&
-                p?.activo !== false &&
-                String(p?.estado || "").toLowerCase() === "activo",
-            )
-          );
-        });
-
-        if (actividadOrigen) {
-          actividadOrigenRef = window.db
-            .collection("actividades")
-            .doc(String(actividadOrigen.id || "").trim());
-        }
-      } else {
-        trabajoOrigenRef = window.db
-          .collection("trabajos")
-          .doc(String(tecnicoTrabajoActual));
-
-        const [trabajoOrigenSnap, actividadesOrigenSnap] = await Promise.all([
-          trabajoOrigenRef.get(),
-          window.db
-            .collection("actividades")
-            .where("trabajo_id", "==", tecnicoTrabajoActual)
-            .where("activo", "==", true)
-            .get(),
-        ]);
-
-        if (trabajoOrigenSnap.exists) {
-          trabajoOrigen = trabajoOrigenSnap.data() || {};
-        }
-
-        actividadesOrigen = actividadesOrigenSnap.docs.map((doc) => doc.data());
-
-        actividadOrigen = actividadesOrigen.find((a) => {
-          const participantes = Array.isArray(a?.participantes)
-            ? a.participantes
-            : [];
-
-          return participantes.some(
-            (p) =>
-              Number(p?.tecnico_id) === Number(tecnicoId) &&
-              p?.activo !== false &&
-              String(p?.estado || "").toLowerCase() === "activo",
-          );
-        });
-
-        if (actividadOrigen) {
-          actividadOrigenRef = window.db
-            .collection("actividades")
-            .doc(String(actividadOrigen.id || "").trim());
-        }
-      }
+    if (!salidaOrigen.ok) {
+      return;
     }
 
-    if (actividadOrigen) {
-      const participantesOrigen = Array.isArray(actividadOrigen.participantes)
-        ? [...actividadOrigen.participantes]
-        : [];
+    const actividadesDestinoRecargadasSnap = await window.db
+      .collection("actividades")
+      .where("trabajo_id", "==", Number(trabajoId))
+      .where("activo", "==", true)
+      .get();
 
-      const indexOrigen = participantesOrigen.findIndex(
-        (p) =>
-          Number(p?.tecnico_id) === Number(tecnicoId) &&
-          p?.activo !== false &&
-          String(p?.estado || "").toLowerCase() === "activo",
-      );
+    actividadesDestino = actividadesDestinoRecargadasSnap.docs.map((doc) =>
+      doc.id === actividadId ? { ...doc.data(), id_doc: doc.id } : doc.data(),
+    );
 
-      if (indexOrigen !== -1) {
-        const participanteOrigen = { ...participantesOrigen[indexOrigen] };
-        const ahoraOrigen = new Date();
-        const ahoraOrigenIso = ahoraOrigen.toISOString();
+    actividadDestinoIndex = actividadesDestino.findIndex(
+      (a) => String(a?.id || "").trim() === actividadId,
+    );
 
-        if (participanteOrigen.inicio_actual_at) {
-          const inicio = new Date(participanteOrigen.inicio_actual_at);
-          if (!isNaN(inicio.getTime())) {
-            const extra = Math.max(
-              0,
-              Math.floor((ahoraOrigen - inicio) / 1000),
-            );
-            participanteOrigen.tiempo_real_seg =
-              Number(participanteOrigen.tiempo_real_seg || 0) + extra;
-          }
-        }
-
-        participanteOrigen.estado = "liberado";
-        participanteOrigen.activo = false;
-        participanteOrigen.inicio_actual_at = null;
-        participanteOrigen.pausa_actual_at = null;
-
-        participantesOrigen[indexOrigen] = participanteOrigen;
-
-        const activosIdsOrigen = (
-          Array.isArray(actividadOrigen.tecnicos_activos_ids)
-            ? actividadOrigen.tecnicos_activos_ids
-            : []
-        ).filter((id) => Number(id) !== Number(tecnicoId));
-
-        const nombreTecnicoOrigen =
-          participanteOrigen.tecnico_nombre || tecnico.nombre || "Técnico";
-
-        const activosNombresOrigen = (
-          Array.isArray(actividadOrigen.tecnicos_activos_nombres)
-            ? actividadOrigen.tecnicos_activos_nombres
-            : []
-        ).filter((n) => n !== nombreTecnicoOrigen);
-
-        const ultimoIdsOrigen = Array.isArray(
-          actividadOrigen.ultimo_tecnicos_ids,
-        )
-          ? [...actividadOrigen.ultimo_tecnicos_ids]
-          : [];
-        const ultimoNombresOrigen = Array.isArray(
-          actividadOrigen.ultimo_tecnicos_nombres,
-        )
-          ? [...actividadOrigen.ultimo_tecnicos_nombres]
-          : [];
-
-        if (!ultimoIdsOrigen.some((id) => Number(id) === Number(tecnicoId))) {
-          ultimoIdsOrigen.push(tecnicoId);
-        }
-        if (!ultimoNombresOrigen.includes(nombreTecnicoOrigen)) {
-          ultimoNombresOrigen.push(nombreTecnicoOrigen);
-        }
-
-        let nuevoEstadoOrigen = "en_proceso";
-
-        if (activosIdsOrigen.length === 0) {
-          if (!accionOrigenSiVacio) {
-            abrirModalTrabajoSinTecnicos({
-              trabajo: mismoTrabajo
-                ? trabajo
-                : {
-                    ...(trabajoOrigen || {}),
-                    actividades: [actividadOrigen],
-                  },
-              contexto:
-                "La actividad de origen quedará sin técnicos activos. ¿Qué deseas hacer con ella?",
-              tecnicosMovidos: [tecnico],
-              onResolver: async (accion) => {
-                if (accion === "__cancelar__") return;
-                await asignarTecnico(trabajoId, tecnicoId, accion);
-              },
-            });
-            return;
-          }
-
-          if (accionOrigenSiVacio === "__cancelar__") {
-            return;
-          }
-
-          if (accionOrigenSiVacio === "finalizado") {
-            nuevoEstadoOrigen = "finalizado";
-          } else if (accionOrigenSiVacio === "pausado") {
-            nuevoEstadoOrigen = "pausado";
-          } else {
-            nuevoEstadoOrigen = "pendiente";
-          }
-        }
-
-        participanteOrigen.visible_en_tarjeta =
-          nuevoEstadoOrigen === "finalizado" || nuevoEstadoOrigen === "pausado";
-
-        participanteOrigen.finalizado_at =
-          nuevoEstadoOrigen === "finalizado" ? ahoraOrigenIso : null;
-
-        participantesOrigen[indexOrigen] = participanteOrigen;
-
-        const actividadOrigenUpdate = {
-          participantes: participantesOrigen,
-          tecnicos_activos_ids: activosIdsOrigen,
-          tecnicos_activos_nombres: activosNombresOrigen,
-          tecnicos_activos_count: activosIdsOrigen.length,
-          estado: nuevoEstadoOrigen,
-          ultima_actividad_at: ahoraOrigenIso,
-          inicio_tramo_activo_at: null,
-          inicio_tramo_pausa_at:
-            nuevoEstadoOrigen === "pausado" ? ahoraOrigenIso : null,
-          ultima_pausa_at:
-            nuevoEstadoOrigen === "pausado"
-              ? ahoraOrigenIso
-              : actividadOrigen.ultima_pausa_at || null,
-          finalizado_at:
-            nuevoEstadoOrigen === "finalizado" ? ahoraOrigenIso : null,
-          ultimo_tecnicos_ids: ultimoIdsOrigen,
-          ultimo_tecnicos_nombres: ultimoNombresOrigen,
-        };
-
-        if (mismoTrabajo) {
-          actividadesDestino = actividadesDestino.map((a) => {
-            if (
-              String(a?.id || "").trim() !==
-              String(actividadOrigen.id || "").trim()
-            ) {
-              return a;
-            }
-            return {
-              ...a,
-              ...actividadOrigen,
-              ...actividadOrigenUpdate,
-            };
-          });
-        } else {
-          actividadesOrigen = actividadesOrigen.map((a) => {
-            if (
-              String(a?.id || "").trim() !==
-              String(actividadOrigen.id || "").trim()
-            ) {
-              return a;
-            }
-            return {
-              ...a,
-              ...actividadOrigen,
-              ...actividadOrigenUpdate,
-            };
-          });
-        }
-
-        actividadOrigen = {
-          ...actividadOrigen,
-          ...actividadOrigenUpdate,
-        };
-      }
+    if (actividadDestinoIndex === -1) {
+      alert("No se pudo recargar la actividad destino.");
+      return;
     }
+
+    actividadDestinoActual = { ...actividadesDestino[actividadDestinoIndex] };
+
+    tecnicosActivosIds = Array.isArray(
+      actividadDestinoActual.tecnicos_activos_ids,
+    )
+      ? [...actividadDestinoActual.tecnicos_activos_ids]
+      : [];
+    tecnicosActivosNombres = Array.isArray(
+      actividadDestinoActual.tecnicos_activos_nombres,
+    )
+      ? [...actividadDestinoActual.tecnicos_activos_nombres]
+      : [];
+    tecnicosParticipantesIds = Array.isArray(
+      actividadDestinoActual.tecnicos_participantes_ids,
+    )
+      ? [...actividadDestinoActual.tecnicos_participantes_ids]
+      : [];
+    ultimoTecnicosIds = Array.isArray(
+      actividadDestinoActual.ultimo_tecnicos_ids,
+    )
+      ? [...actividadDestinoActual.ultimo_tecnicos_ids]
+      : [];
+    ultimoTecnicosNombres = Array.isArray(
+      actividadDestinoActual.ultimo_tecnicos_nombres,
+    )
+      ? [...actividadDestinoActual.ultimo_tecnicos_nombres]
+      : [];
+    participantesDestino = Array.isArray(actividadDestinoActual.participantes)
+      ? [...actividadDestinoActual.participantes]
+      : [];
 
     const ahoraIso = new Date().toISOString();
 
-    tecnicosActivosIds.push(tecnico.id);
-    tecnicosActivosNombres.push(tecnico.nombre || "Técnico");
+    if (!tecnicosActivosIds.some((id) => Number(id) === Number(tecnico.id))) {
+      tecnicosActivosIds.push(tecnico.id);
+    }
+
+    if (!tecnicosActivosNombres.includes(tecnico.nombre || "Técnico")) {
+      tecnicosActivosNombres.push(tecnico.nombre || "Técnico");
+    }
 
     if (
       !tecnicosParticipantesIds.some((id) => Number(id) === Number(tecnico.id))
@@ -4220,8 +4261,9 @@ async function asignarTecnico(
     }
 
     const actividadDestinoUpdate = {
+      participantes: participantesDestino,
       estado: "en_proceso",
-      primer_inicio_at: actividadDestino.primer_inicio_at || ahoraIso,
+      primer_inicio_at: actividadDestinoActual.primer_inicio_at || ahoraIso,
       ultima_reanudacion_at: ahoraIso,
       ultima_actividad_at: ahoraIso,
       inicio_tramo_activo_at: ahoraIso,
@@ -4238,42 +4280,24 @@ async function asignarTecnico(
       ultimo_tecnicos_nombres: ultimoTecnicosNombres.filter(
         (nombre) => nombre !== (tecnico.nombre || "Técnico"),
       ),
-      participantes: participantesDestino,
     };
 
     actividadesDestino[actividadDestinoIndex] = {
-      ...actividadDestino,
+      ...actividadDestinoActual,
       ...actividadDestinoUpdate,
     };
 
     const {
-      nuevoEstadoTrabajo: nuevoEstadoDestino,
-      actividadesPendientes: destinoPendientes,
-      actividadesEnProceso: destinoEnProceso,
-      actividadesPausadas: destinoPausadas,
-      actividadesFinalizadas: destinoFinalizadas,
-      tecnicosActivosTotal: destinoActivosTotal,
-      tecnicosParticipantesCount: destinoParticipantesCount,
+      nuevoEstadoTrabajo,
+      actividadesPendientes,
+      actividadesEnProceso,
+      actividadesPausadas,
+      actividadesFinalizadas,
+      tecnicosActivosTotal,
+      tecnicosParticipantesCount,
     } = resumirEstadosTrabajoDesdeActividades(actividadesDestino);
 
     const batch = window.db.batch();
-
-    if (actividadOrigenRef && actividadOrigen) {
-      batch.update(actividadOrigenRef, {
-        participantes: actividadOrigen.participantes,
-        tecnicos_activos_ids: actividadOrigen.tecnicos_activos_ids,
-        tecnicos_activos_nombres: actividadOrigen.tecnicos_activos_nombres,
-        tecnicos_activos_count: actividadOrigen.tecnicos_activos_count,
-        estado: actividadOrigen.estado,
-        ultima_actividad_at: actividadOrigen.ultima_actividad_at,
-        inicio_tramo_activo_at: actividadOrigen.inicio_tramo_activo_at,
-        inicio_tramo_pausa_at: actividadOrigen.inicio_tramo_pausa_at,
-        ultima_pausa_at: actividadOrigen.ultima_pausa_at,
-        finalizado_at: actividadOrigen.finalizado_at,
-        ultimo_tecnicos_ids: actividadOrigen.ultimo_tecnicos_ids,
-        ultimo_tecnicos_nombres: actividadOrigen.ultimo_tecnicos_nombres,
-      });
-    }
 
     batch.update(actividadRef, actividadDestinoUpdate);
 
@@ -4282,47 +4306,23 @@ async function asignarTecnico(
       trabajo_id: Number(trabajoId),
       almuerzo_desde: null,
       almuerzo_hasta: null,
+      actividad_origen_almuerzo_id: null,
+      trabajo_origen_almuerzo_id: null,
     });
 
     batch.update(trabajoRef, {
-      estado: nuevoEstadoDestino,
+      estado: nuevoEstadoTrabajo,
       primer_inicio_at: trabajo.primer_inicio_at || ahoraIso,
       ultima_actividad_at: ahoraIso,
-      finalizado_at: nuevoEstadoDestino === "finalizado" ? ahoraIso : null,
+      finalizado_at: nuevoEstadoTrabajo === "finalizado" ? ahoraIso : null,
       total_actividades: actividadesDestino.length,
-      actividades_pendientes: destinoPendientes,
-      actividades_en_proceso: destinoEnProceso,
-      actividades_pausadas: destinoPausadas,
-      actividades_finalizadas: destinoFinalizadas,
-      tecnicos_activos_count: destinoActivosTotal,
-      tecnicos_participantes_count: destinoParticipantesCount,
+      actividades_pendientes: actividadesPendientes,
+      actividades_en_proceso: actividadesEnProceso,
+      actividades_pausadas: actividadesPausadas,
+      actividades_finalizadas: actividadesFinalizadas,
+      tecnicos_activos_count: tecnicosActivosTotal,
+      tecnicos_participantes_count: tecnicosParticipantesCount,
     });
-
-    if (!mismoTrabajo && trabajoOrigenRef && Array.isArray(actividadesOrigen)) {
-      const {
-        nuevoEstadoTrabajo: nuevoEstadoOrigenTrabajo,
-        actividadesPendientes: origenPendientes,
-        actividadesEnProceso: origenEnProceso,
-        actividadesPausadas: origenPausadas,
-        actividadesFinalizadas: origenFinalizadas,
-        tecnicosActivosTotal: origenActivosTotal,
-        tecnicosParticipantesCount: origenParticipantesCount,
-      } = resumirEstadosTrabajoDesdeActividades(actividadesOrigen);
-
-      batch.update(trabajoOrigenRef, {
-        estado: nuevoEstadoOrigenTrabajo,
-        ultima_actividad_at: ahoraIso,
-        finalizado_at:
-          nuevoEstadoOrigenTrabajo === "finalizado" ? ahoraIso : null,
-        total_actividades: actividadesOrigen.length,
-        actividades_pendientes: origenPendientes,
-        actividades_en_proceso: origenEnProceso,
-        actividades_pausadas: origenPausadas,
-        actividades_finalizadas: origenFinalizadas,
-        tecnicos_activos_count: origenActivosTotal,
-        tecnicos_participantes_count: origenParticipantesCount,
-      });
-    }
 
     await batch.commit();
 
@@ -4367,7 +4367,7 @@ async function crearEventoActividad({
   }
 }
 
-async function pedirLiberarTecnico(trabajoId, tecnicoId) {
+async function pedirLiberarTecnico(trabajoId, actividadId, tecnicoId) {
   if (!validarBatuta()) return;
 
   const trabajo = (ultimoResumen.trabajos || []).find(
@@ -4386,25 +4386,29 @@ async function pedirLiberarTecnico(trabajoId, tecnicoId) {
     ? trabajo.actividades
     : [];
 
-  const actividadActual = actividades.find((a) => {
-    const participantes = Array.isArray(a?.participantes)
-      ? a.participantes
-      : [];
-
-    return participantes.some(
-      (p) =>
-        Number(p?.tecnico_id) === Number(tecnicoId) &&
-        p?.activo !== false &&
-        String(p?.estado || "").toLowerCase() === "activo",
-    );
-  });
+  const actividadActual = actividades.find(
+    (a) => String(a?.id || "").trim() === String(actividadId || "").trim(),
+  );
 
   if (!actividadActual) {
-    alert("No se encontró la actividad actual del técnico.");
+    alert("No se encontró la actividad.");
     return;
   }
 
-  actividadAsignacionId = String(actividadActual.id || "").trim();
+  const participantes = Array.isArray(actividadActual.participantes)
+    ? actividadActual.participantes
+    : [];
+
+  const participanteActual = participantes.find(
+    (p) =>
+      Number(p?.tecnico_id) === Number(tecnicoId) &&
+      String(p?.estado || "").toLowerCase() !== "finalizado",
+  );
+
+  if (!participanteActual) {
+    alert("No se encontró la participación del técnico en esta actividad.");
+    return;
+  }
 
   const cantidadActivos = Array.isArray(actividadActual.tecnicos_activos_ids)
     ? actividadActual.tecnicos_activos_ids.length
@@ -4412,8 +4416,15 @@ async function pedirLiberarTecnico(trabajoId, tecnicoId) {
 
   const nombreTecnico = tecnico?.nombre || "Técnico";
   const nombreActividad = actividadActual.descripcion || "Actividad";
+  const estadoParticipante = String(
+    participanteActual.estado || "",
+  ).toLowerCase();
+  const esActivo =
+    participanteActual?.activo !== false && estadoParticipante === "activo";
 
-  if (cantidadActivos <= 1) {
+  const esUltimoActivo = esActivo && cantidadActivos <= 1;
+
+  if (esUltimoActivo) {
     abrirModalConfirmacion({
       titulo: "Finalizar participación",
       texto:
@@ -4425,7 +4436,12 @@ async function pedirLiberarTecnico(trabajoId, tecnicoId) {
       boton: "Finalizar participación",
       claseBoton: "btn-principal",
       onConfirm: async () => {
-        await liberarTecnicoDeTrabajo(trabajoId, tecnicoId, "finalizado");
+        await liberarTecnicoDeTrabajo(
+          trabajoId,
+          tecnicoId,
+          "finalizado",
+          actividadActual.id,
+        );
       },
     });
     return;
@@ -4433,8 +4449,7 @@ async function pedirLiberarTecnico(trabajoId, tecnicoId) {
 
   abrirModalConfirmacion({
     titulo: "Finalizar participación",
-    texto:
-      "Este técnico dejará de participar en la actividad actual y quedará libre para otra asignación.",
+    texto: "Este técnico dejará de participar en esta actividad.",
     destacado: `
 <strong>Técnico:</strong> ${escapeHtml(nombreTecnico)}<br>
 <strong>Actividad:</strong> ${escapeHtml(nombreActividad)}
@@ -4442,7 +4457,12 @@ async function pedirLiberarTecnico(trabajoId, tecnicoId) {
     boton: "Finalizar participación",
     claseBoton: "btn-principal",
     onConfirm: async () => {
-      await liberarTecnicoDeTrabajo(trabajoId, tecnicoId, "finalizado");
+      await liberarTecnicoDeTrabajo(
+        trabajoId,
+        tecnicoId,
+        "finalizado",
+        actividadActual.id,
+      );
     },
   });
 }
@@ -4475,8 +4495,6 @@ async function pedirPausarParticipacion(trabajoId, actividadId, tecnicoId) {
     return;
   }
 
-  actividadAsignacionId = String(actividadActual.id || "").trim();
-
   const cantidadActivos = Array.isArray(actividadActual.tecnicos_activos_ids)
     ? actividadActual.tecnicos_activos_ids.length
     : 0;
@@ -4496,7 +4514,12 @@ async function pedirPausarParticipacion(trabajoId, actividadId, tecnicoId) {
       boton: "Pausar participación",
       claseBoton: "btn-secundario",
       onConfirm: async () => {
-        await liberarTecnicoDeTrabajo(trabajoId, tecnicoId, "pausado");
+        await liberarTecnicoDeTrabajo(
+          trabajoId,
+          tecnicoId,
+          "pausado",
+          actividadActual.id,
+        );
       },
     });
     return;
@@ -4513,7 +4536,12 @@ async function pedirPausarParticipacion(trabajoId, actividadId, tecnicoId) {
     boton: "Pausar participación",
     claseBoton: "btn-secundario",
     onConfirm: async () => {
-      await liberarTecnicoDeTrabajo(trabajoId, tecnicoId, "pausado");
+      await liberarTecnicoDeTrabajo(
+        trabajoId,
+        tecnicoId,
+        "pausado",
+        actividadActual.id,
+      );
     },
   });
 }
@@ -4522,6 +4550,7 @@ async function liberarTecnicoDeTrabajo(
   trabajoId,
   tecnicoId,
   accionSiVacio = null,
+  actividadIdOrigen = null,
 ) {
   if (!validarBatuta()) return;
 
@@ -4529,7 +4558,12 @@ async function liberarTecnicoDeTrabajo(
   if (!iniciarAccion(clave)) return;
 
   try {
-    const actividadId = String(actividadAsignacionId || "").trim();
+    const actividadId = String(actividadIdOrigen || "").trim();
+
+    if (!actividadId) {
+      alert("No se encontró la actividad origen del técnico.");
+      return;
+    }
 
     const trabajoRef = window.db.collection("trabajos").doc(String(trabajoId));
     const actividadRef = window.db.collection("actividades").doc(actividadId);
@@ -4550,6 +4584,11 @@ async function liberarTecnicoDeTrabajo(
     const actividad = actividadSnap.data() || {};
     const tecnico = tecnicoSnap.data() || {};
 
+    if (Number(actividad.trabajo_id) !== Number(trabajoId)) {
+      alert("La actividad origen no pertenece al trabajo indicado.");
+      return;
+    }
+
     const participantes = Array.isArray(actividad.participantes)
       ? [...actividad.participantes]
       : [];
@@ -4557,39 +4596,47 @@ async function liberarTecnicoDeTrabajo(
     const index = participantes.findIndex(
       (p) =>
         Number(p?.tecnico_id) === Number(tecnicoId) &&
-        p?.activo !== false &&
-        String(p?.estado || "").toLowerCase() === "activo",
+        String(p?.estado || "").toLowerCase() !== "finalizado",
     );
 
     if (index === -1) {
-      alert("No se encontró el participante activo.");
+      alert("No se encontró la participación del técnico.");
       return;
     }
 
     const participante = { ...participantes[index] };
-    const ahoraIso = new Date().toISOString();
+    const estadoAnterior = String(participante?.estado || "").toLowerCase();
+    const eraActivo =
+      participante?.activo !== false && estadoAnterior === "activo";
+
+    const ahora = new Date();
+    const ahoraIso = ahora.toISOString();
 
     if (participante.inicio_actual_at) {
       const inicio = new Date(participante.inicio_actual_at);
       if (!isNaN(inicio.getTime())) {
-        const ahora = new Date();
         const extra = Math.max(0, Math.floor((ahora - inicio) / 1000));
         participante.tiempo_real_seg =
           Number(participante.tiempo_real_seg || 0) + extra;
       }
     }
 
-    const accionFinal =
-      String(accionSiVacio || "").toLowerCase() === "pausado"
-        ? "pausado"
-        : "finalizado";
+    const accionNormalizada = String(accionSiVacio || "").toLowerCase();
 
-    participante.estado = accionFinal;
+    if (accionNormalizada === "pausado") {
+      participante.estado = "pausado";
+      participante.visible_en_tarjeta = true;
+      participante.pausa_actual_at = ahoraIso;
+      participante.finalizado_at = null;
+    } else {
+      participante.estado = "finalizado";
+      participante.visible_en_tarjeta = true;
+      participante.pausa_actual_at = null;
+      participante.finalizado_at = ahoraIso;
+    }
+
     participante.activo = false;
     participante.inicio_actual_at = null;
-    participante.pausa_actual_at = accionFinal === "pausado" ? ahoraIso : null;
-    participante.finalizado_at = accionFinal === "finalizado" ? ahoraIso : null;
-    participante.visible_en_tarjeta = true;
 
     participantes[index] = participante;
 
@@ -4621,17 +4668,37 @@ async function liberarTecnicoDeTrabajo(
     const ultimoNombres = ultimoNombresBase.filter((n) => n !== nombreTecnico);
 
     if (!ultimoIds.some((id) => Number(id) === Number(tecnicoId))) {
-      ultimoIds.push(tecnicoId);
+      ultimoIds.push(Number(tecnicoId));
     }
+
     if (!ultimoNombres.includes(nombreTecnico)) {
       ultimoNombres.push(nombreTecnico);
     }
 
-    let nuevoEstadoActividad = "en_proceso";
+    const participantesVigentes = participantes.filter(
+      (p) => String(p?.estado || "").toLowerCase() !== "finalizado",
+    );
 
-    if (activosIds.length === 0) {
-      nuevoEstadoActividad =
-        accionFinal === "pausado" ? "pausado" : "finalizado";
+    const hayActivos = participantesVigentes.some(
+      (p) =>
+        p?.activo !== false &&
+        String(p?.estado || "").toLowerCase() === "activo",
+    );
+
+    const hayPausados = participantesVigentes.some(
+      (p) => String(p?.estado || "").toLowerCase() === "pausado",
+    );
+
+    let nuevoEstadoActividad = "pendiente";
+
+    if (hayActivos) {
+      nuevoEstadoActividad = "en_proceso";
+    } else if (hayPausados) {
+      nuevoEstadoActividad = "pausado";
+    } else if (accionNormalizada === "finalizado") {
+      nuevoEstadoActividad = "finalizado";
+    } else {
+      nuevoEstadoActividad = "pausado";
     }
 
     const actividadUpdate = {
@@ -4641,7 +4708,8 @@ async function liberarTecnicoDeTrabajo(
       tecnicos_activos_count: activosIds.length,
       estado: nuevoEstadoActividad,
       ultima_actividad_at: ahoraIso,
-      inicio_tramo_activo_at: null,
+      inicio_tramo_activo_at:
+        activosIds.length > 0 ? actividad.inicio_tramo_activo_at || null : null,
       inicio_tramo_pausa_at:
         nuevoEstadoActividad === "pausado" ? ahoraIso : null,
       ultima_pausa_at:
@@ -4653,173 +4721,21 @@ async function liberarTecnicoDeTrabajo(
       ultimo_tecnicos_nombres: ultimoNombres,
     };
 
-    const actividadesTrabajo = Array.isArray(ultimoResumen?.trabajos)
-      ? ultimoResumen.trabajos.find((t) => Number(t.id) === Number(trabajoId))
-          ?.actividades || []
-      : [];
-
-    const actividadesRestantes = actividadesTrabajo.map((a) => {
-      if (String(a?.id || "").trim() !== actividadId) return a;
-      return {
-        ...a,
-        ...actividad,
-        ...actividadUpdate,
-      };
-    });
-
-    const {
-      nuevoEstadoTrabajo,
-      actividadesPendientes,
-      actividadesEnProceso,
-      actividadesPausadas,
-      actividadesFinalizadas,
-      tecnicosActivosTotal,
-      tecnicosParticipantesCount,
-    } = resumirEstadosTrabajoDesdeActividades(actividadesRestantes);
-
-    const batch = window.db.batch();
-
-    batch.update(actividadRef, actividadUpdate);
-
-    batch.update(tecnicoRef, {
-      estado: "libre",
-      trabajo_id: null,
-      almuerzo_desde: null,
-      almuerzo_hasta: null,
-    });
-
-    batch.update(trabajoRef, {
-      estado: nuevoEstadoTrabajo,
-      ultima_actividad_at: ahoraIso,
-      finalizado_at: nuevoEstadoTrabajo === "finalizado" ? ahoraIso : null,
-      total_actividades: actividadesRestantes.length,
-      actividades_pendientes: actividadesPendientes,
-      actividades_en_proceso: actividadesEnProceso,
-      actividades_pausadas: actividadesPausadas,
-      actividades_finalizadas: actividadesFinalizadas,
-      tecnicos_activos_count: tecnicosActivosTotal,
-      tecnicos_participantes_count: tecnicosParticipantesCount,
-    });
-
-    await batch.commit();
-  } catch (error) {
-    console.error("Error actualizando participación del técnico:", error);
-    alert("No se pudo actualizar la participación del técnico.");
-  } finally {
-    finalizarAccion(clave);
-  }
-}
-
-async function reanudarParticipacionEnActividad(
-  trabajoId,
-  actividadId,
-  tecnicoId,
-) {
-  if (!validarBatuta()) return;
-
-  const clave = `reanudar-participacion-${trabajoId}-${actividadId}-${tecnicoId}`;
-  if (!iniciarAccion(clave)) return;
-
-  try {
-    const actividadIdTexto = String(actividadId || "").trim();
-
-    const trabajoRef = window.db.collection("trabajos").doc(String(trabajoId));
-    const actividadRef = window.db
+    const actividadesSnap = await window.db
       .collection("actividades")
-      .doc(actividadIdTexto);
-    const tecnicoRef = window.db.collection("tecnicos").doc(String(tecnicoId));
+      .where("trabajo_id", "==", Number(trabajoId))
+      .where("activo", "==", true)
+      .get();
 
-    const [trabajoSnap, actividadSnap, tecnicoSnap] = await Promise.all([
-      trabajoRef.get(),
-      actividadRef.get(),
-      tecnicoRef.get(),
-    ]);
-
-    if (!trabajoSnap.exists || !actividadSnap.exists || !tecnicoSnap.exists) {
-      alert("No se encontraron los datos para reanudar la participación.");
-      return;
-    }
-
-    const trabajo = trabajoSnap.data() || {};
-    const actividad = actividadSnap.data() || {};
-    const tecnico = tecnicoSnap.data() || {};
-
-    if (String(tecnico.estado || "").toLowerCase() !== "libre") {
-      alert("Este técnico no está libre para reanudar su participación.");
-      return;
-    }
-
-    const participantes = Array.isArray(actividad.participantes)
-      ? [...actividad.participantes]
-      : [];
-
-    const index = participantes.findIndex(
-      (p) =>
-        Number(p?.tecnico_id) === Number(tecnicoId) &&
-        String(p?.estado || "").toLowerCase() === "pausado",
-    );
-
-    if (index === -1) {
-      alert("No se encontró una participación pausada para este técnico.");
-      return;
-    }
-
-    const participante = { ...participantes[index] };
-    const ahoraIso = new Date().toISOString();
-
-    participante.estado = "activo";
-    participante.activo = true;
-    participante.inicio_actual_at = ahoraIso;
-    participante.pausa_actual_at = null;
-    participante.finalizado_at = null;
-    participante.visible_en_tarjeta = true;
-
-    participantes[index] = participante;
-
-    const activosIds = Array.isArray(actividad.tecnicos_activos_ids)
-      ? [...actividad.tecnicos_activos_ids]
-      : [];
-    const activosNombres = Array.isArray(actividad.tecnicos_activos_nombres)
-      ? [...actividad.tecnicos_activos_nombres]
-      : [];
-
-    if (!activosIds.some((id) => Number(id) === Number(tecnicoId))) {
-      activosIds.push(Number(tecnicoId));
-    }
-
-    const nombreTecnico =
-      participante.tecnico_nombre || tecnico.nombre || "Técnico";
-
-    if (!activosNombres.includes(nombreTecnico)) {
-      activosNombres.push(nombreTecnico);
-    }
-
-    const actividadUpdate = {
-      participantes,
-      estado: "en_proceso",
-      primer_inicio_at: actividad.primer_inicio_at || ahoraIso,
-      ultima_reanudacion_at: ahoraIso,
-      ultima_actividad_at: ahoraIso,
-      inicio_tramo_activo_at: ahoraIso,
-      inicio_tramo_pausa_at: null,
-      finalizado_at: null,
-      tecnicos_activos_ids: activosIds,
-      tecnicos_activos_nombres: activosNombres,
-      tecnicos_activos_count: activosIds.length,
-    };
-
-    const actividadesTrabajo = Array.isArray(ultimoResumen?.trabajos)
-      ? ultimoResumen.trabajos.find((t) => Number(t.id) === Number(trabajoId))
-          ?.actividades || []
-      : [];
-
-    const actividadesActualizadas = actividadesTrabajo.map((a) => {
-      if (String(a?.id || "").trim() !== actividadIdTexto) return a;
-      return {
-        ...a,
-        ...actividad,
-        ...actividadUpdate,
-      };
+    const actividadesActualizadas = actividadesSnap.docs.map((doc) => {
+      const data = doc.data() || {};
+      if (doc.id === actividadRef.id) {
+        return {
+          ...data,
+          ...actividadUpdate,
+        };
+      }
+      return data;
     });
 
     const {
@@ -4836,16 +4752,29 @@ async function reanudarParticipacionEnActividad(
 
     batch.update(actividadRef, actividadUpdate);
 
-    batch.update(tecnicoRef, {
-      estado: "trabajando",
-      trabajo_id: Number(trabajoId),
-      almuerzo_desde: null,
-      almuerzo_hasta: null,
-    });
+    const updateTecnico = {};
+
+    if (eraActivo) {
+      updateTecnico.estado = "libre";
+      updateTecnico.trabajo_id = null;
+      updateTecnico.almuerzo_desde = null;
+      updateTecnico.almuerzo_hasta = null;
+      updateTecnico.actividad_origen_almuerzo_id = null;
+      updateTecnico.trabajo_origen_almuerzo_id = null;
+    } else if (
+      String(tecnico.estado || "").toLowerCase() === "almuerzo" &&
+      String(tecnico.actividad_origen_almuerzo_id || "").trim() === actividadId
+    ) {
+      updateTecnico.actividad_origen_almuerzo_id = null;
+      updateTecnico.trabajo_origen_almuerzo_id = null;
+    }
+
+    if (Object.keys(updateTecnico).length > 0) {
+      batch.update(tecnicoRef, updateTecnico);
+    }
 
     batch.update(trabajoRef, {
       estado: nuevoEstadoTrabajo,
-      primer_inicio_at: trabajo.primer_inicio_at || ahoraIso,
       ultima_actividad_at: ahoraIso,
       finalizado_at: nuevoEstadoTrabajo === "finalizado" ? ahoraIso : null,
       total_actividades: actividadesActualizadas.length,
@@ -4859,8 +4788,8 @@ async function reanudarParticipacionEnActividad(
 
     await batch.commit();
   } catch (error) {
-    console.error("Error reanudando participación:", error);
-    alert("No se pudo reanudar la participación del técnico.");
+    console.error("Error liberando técnico:", error);
+    alert("No se pudo liberar al técnico de la actividad.");
   } finally {
     finalizarAccion(clave);
   }
@@ -4873,152 +4802,110 @@ async function reanudarParticipacionEnActividad(
 ) {
   if (!validarBatuta()) return;
 
-  const clave = `reanudar-participacion-${trabajoId}-${actividadId}-${tecnicoId}`;
-  if (!iniciarAccion(clave)) return;
+  const trabajo = (ultimoResumen.trabajos || []).find(
+    (t) => Number(t.id) === Number(trabajoId),
+  );
 
-  try {
-    const actividadIdTexto = String(actividadId || "").trim();
+  if (!trabajo) {
+    alert("No se encontró el trabajo.");
+    return;
+  }
 
-    const trabajoRef = window.db.collection("trabajos").doc(String(trabajoId));
-    const actividadRef = window.db
-      .collection("actividades")
-      .doc(actividadIdTexto);
-    const tecnicoRef = window.db.collection("tecnicos").doc(String(tecnicoId));
+  const actividades = Array.isArray(trabajo.actividades)
+    ? trabajo.actividades
+    : [];
 
-    const [trabajoSnap, actividadSnap, tecnicoSnap] = await Promise.all([
-      trabajoRef.get(),
-      actividadRef.get(),
-      tecnicoRef.get(),
-    ]);
+  const actividad = actividades.find(
+    (a) => String(a?.id || "").trim() === String(actividadId || "").trim(),
+  );
 
-    if (!trabajoSnap.exists || !actividadSnap.exists || !tecnicoSnap.exists) {
-      alert("No se encontraron los datos para reanudar la participación.");
+  if (!actividad) {
+    alert("No se encontró la actividad.");
+    return;
+  }
+
+  const participante = (
+    Array.isArray(actividad.participantes) ? actividad.participantes : []
+  ).find(
+    (p) =>
+      Number(p?.tecnico_id) === Number(tecnicoId) &&
+      String(p?.estado || "").toLowerCase() === "pausado",
+  );
+
+  if (!participante) {
+    alert("No se encontró una participación pausada para este técnico.");
+    return;
+  }
+
+  const tecnicoRef = window.db.collection("tecnicos").doc(String(tecnicoId));
+  const tecnicoSnap = await tecnicoRef.get();
+
+  if (!tecnicoSnap.exists) {
+    alert("No se encontró el técnico.");
+    return;
+  }
+
+  const tecnico = tecnicoSnap.data() || {};
+
+  if (tecnico.habilitado === false || tecnico.activo === false) {
+    alert("Este técnico no está disponible para reanudar.");
+    return;
+  }
+
+  const trabajoActualId =
+    tecnico.trabajo_id != null ? Number(tecnico.trabajo_id) : null;
+
+  const estaOcupadoEnOtraActividad =
+    String(tecnico.estado || "").toLowerCase() === "trabajando" &&
+    trabajoActualId != null;
+
+  // Caso 1: está ocupado -> resolver con el modal nuevo y reanudar directo
+  if (estaOcupadoEnOtraActividad) {
+    const salidaOrigen = await resolverSalidaParticipacionOrigenV2({
+      tecnico,
+      trabajoDestino: trabajo,
+      actividadDestinoId: actividadId,
+    });
+
+    if (!salidaOrigen.ok) {
       return;
     }
 
-    const trabajo = trabajoSnap.data() || {};
-    const actividad = actividadSnap.data() || {};
-    const tecnico = tecnicoSnap.data() || {};
-
-    if (String(tecnico.estado || "").toLowerCase() !== "libre") {
-      alert("Este técnico no está libre para reanudar su participación.");
-      return;
-    }
-
-    const participantes = Array.isArray(actividad.participantes)
-      ? [...actividad.participantes]
-      : [];
-
-    const index = participantes.findIndex(
-      (p) =>
-        Number(p?.tecnico_id) === Number(tecnicoId) &&
-        String(p?.estado || "").toLowerCase() === "pausado",
+    const ok = await activarParticipantePausadoEnActividadV2(
+      trabajoId,
+      actividadId,
+      tecnicoId,
     );
 
-    if (index === -1) {
-      alert("No se encontró una participación pausada para este técnico.");
-      return;
+    if (!ok) {
+      alert("No se pudo reanudar la participación.");
     }
 
-    const participante = { ...participantes[index] };
-    const ahoraIso = new Date().toISOString();
-
-    participante.estado = "activo";
-    participante.activo = true;
-    participante.inicio_actual_at = ahoraIso;
-    participante.pausa_actual_at = null;
-    participante.finalizado_at = null;
-    participante.visible_en_tarjeta = true;
-
-    participantes[index] = participante;
-
-    const activosIds = Array.isArray(actividad.tecnicos_activos_ids)
-      ? [...actividad.tecnicos_activos_ids]
-      : [];
-    const activosNombres = Array.isArray(actividad.tecnicos_activos_nombres)
-      ? [...actividad.tecnicos_activos_nombres]
-      : [];
-
-    if (!activosIds.some((id) => Number(id) === Number(tecnicoId))) {
-      activosIds.push(Number(tecnicoId));
-    }
-
-    const nombreTecnico =
-      participante.tecnico_nombre || tecnico.nombre || "Técnico";
-    if (!activosNombres.includes(nombreTecnico)) {
-      activosNombres.push(nombreTecnico);
-    }
-
-    const actividadUpdate = {
-      participantes,
-      estado: "en_proceso",
-      primer_inicio_at: actividad.primer_inicio_at || ahoraIso,
-      ultima_reanudacion_at: ahoraIso,
-      ultima_actividad_at: ahoraIso,
-      inicio_tramo_activo_at: ahoraIso,
-      inicio_tramo_pausa_at: null,
-      finalizado_at: null,
-      tecnicos_activos_ids: activosIds,
-      tecnicos_activos_nombres: activosNombres,
-      tecnicos_activos_count: activosIds.length,
-    };
-
-    const actividadesTrabajo = Array.isArray(ultimoResumen?.trabajos)
-      ? ultimoResumen.trabajos.find((t) => Number(t.id) === Number(trabajoId))
-          ?.actividades || []
-      : [];
-
-    const actividadesActualizadas = actividadesTrabajo.map((a) => {
-      if (String(a?.id || "").trim() !== actividadIdTexto) return a;
-      return {
-        ...a,
-        ...actividad,
-        ...actividadUpdate,
-      };
-    });
-
-    const {
-      nuevoEstadoTrabajo,
-      actividadesPendientes,
-      actividadesEnProceso,
-      actividadesPausadas,
-      actividadesFinalizadas,
-      tecnicosActivosTotal,
-      tecnicosParticipantesCount,
-    } = resumirEstadosTrabajoDesdeActividades(actividadesActualizadas);
-
-    const batch = window.db.batch();
-
-    batch.update(actividadRef, actividadUpdate);
-
-    batch.update(tecnicoRef, {
-      estado: "trabajando",
-      trabajo_id: Number(trabajoId),
-      almuerzo_desde: null,
-      almuerzo_hasta: null,
-    });
-
-    batch.update(trabajoRef, {
-      estado: nuevoEstadoTrabajo,
-      primer_inicio_at: trabajo.primer_inicio_at || ahoraIso,
-      ultima_actividad_at: ahoraIso,
-      finalizado_at: nuevoEstadoTrabajo === "finalizado" ? ahoraIso : null,
-      total_actividades: actividadesActualizadas.length,
-      actividades_pendientes: actividadesPendientes,
-      actividades_en_proceso: actividadesEnProceso,
-      actividades_pausadas: actividadesPausadas,
-      actividades_finalizadas: actividadesFinalizadas,
-      tecnicos_activos_count: tecnicosActivosTotal,
-      tecnicos_participantes_count: tecnicosParticipantesCount,
-    });
-
-    await batch.commit();
-  } catch (error) {
-    console.error("Error reanudando participación:", error);
-    alert("No se pudo reanudar la participación del técnico.");
-  } finally {
-    finalizarAccion(clave);
+    return;
   }
+
+  // Caso 2: está libre -> usar el modal normal de confirmación
+  abrirModalConfirmacion({
+    titulo: "Reanudar participación",
+    texto: "El técnico volverá a esta actividad y retomará su participación.",
+    destacado: `
+<strong>Técnico:</strong> ${escapeHtml(participante.tecnico_nombre || "Técnico")}<br>
+<strong>Actividad:</strong> ${escapeHtml(actividad.descripcion || "Actividad")}
+`,
+    boton: "Reanudar participación",
+    claseBoton: "btn-principal",
+    onConfirm: async () => {
+      const ok = await activarParticipantePausadoEnActividadV2(
+        trabajoId,
+        actividadId,
+        tecnicoId,
+      );
+
+      if (!ok) {
+        alert("No se pudo reanudar la participación.");
+      }
+    },
+  });
 }
 
 async function cerrarActividad(trabajoId, actividadId) {
@@ -7000,14 +6887,12 @@ async function reanudarActividadConSeleccionV2(
       }
     }
 
-    const actividadAsignacionAnterior = actividadAsignacionId;
-    actividadAsignacionId = String(actividadOrigen.id || "").trim();
-
-    try {
-      await liberarTecnicoDeTrabajo(trabajoOrigenId, tecnicoId, accionOrigen);
-    } finally {
-      actividadAsignacionId = actividadAsignacionAnterior;
-    }
+    await liberarTecnicoDeTrabajo(
+      trabajoOrigenId,
+      tecnicoId,
+      accionOrigen,
+      actividadOrigen.id,
+    );
 
     const ok = await activarParticipantePausadoEnActividadV2(
       trabajoId,
