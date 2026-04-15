@@ -25,10 +25,17 @@
           <div class="panel-top-marca">
             <div class="panel-top-titulo">
               🚗 Super Accesorios El Colorado {% if app_env == "test" %}
-              <span style="color: red; font-weight: bold; margin-left: 10px"
-                >TEST 2</span
+              <span
+                style="
+                  color: red;
+                  font-weight: bold;
+                  margin-left: 6px;
+                  font-size: 0.75rem;
+                "
               >
-              {% endif %}
+                TEST 2
+              </span>
+              > {% endif %}
             </div>
             <div class="panel-top-subtexto">
               Registro rápido de trabajos, seguimiento y edición en vivo.
@@ -58,23 +65,6 @@
         </div>
 
         <div class="panel-top-acciones">
-          <form
-            id="formRecuperarBatuta"
-            method="POST"
-            action="/batuta/tomar"
-            class="accion-icono-wrap"
-            style="{% if not es_admin %}display:none;{% endif %}"
-          >
-            <button
-              type="submit"
-              class="accion-icono accion-recuperar"
-              title="Recuperar supervisión"
-              aria-label="Recuperar supervisión"
-            >
-              Recuperar batuta
-            </button>
-          </form>
-
           <details class="panel-menu">
             <summary class="panel-menu-boton" aria-label="Abrir menú">
               ☰
@@ -86,6 +76,17 @@
                 class="panel-menu-seccion panel-menu-seccion-supervision"
               >
                 <div class="panel-menu-seccion-titulo">Supervisión</div>
+                <form
+                  id="formRecuperarBatuta"
+                  method="POST"
+                  action="/batuta/tomar"
+                  class="panel-menu-form"
+                  style="{% if not es_admin %}display:none;{% endif %}"
+                >
+                  <button type="submit" class="panel-menu-link">
+                    Recuperar supervisión
+                  </button>
+                </form>
 
                 <form
                   id="formTransferirBatuta"
@@ -211,8 +212,6 @@
 
           <div class="fecha-chip" id="chipTrabajosHoy">🧾 Trabajos hoy: 0</div>
         </div>
-
-        <label class="campo-label">Selecciona el origen del trabajo</label>
         <div
           id="vendedores"
           class="vendedores-grid vendedores-grid-principal"

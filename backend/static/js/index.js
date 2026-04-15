@@ -38,6 +38,7 @@ let timerRefrescoMinutos = null;
 let accionPendiente = null;
 let trabajoSinTecnicosPendiente = null;
 const accionesEnProceso = new Set();
+let mantenerAccionesCrearTrabajoFlotantes = false;
 let PUEDE_GESTIONAR_UI = false;
 let usuarioActualCache = null;
 let nombreBatutaCache = {};
@@ -86,6 +87,117 @@ function enfocarSiguienteCampoCreacion(origen) {
       );
     }
   }, 80);
+}
+
+function obtenerInsetTecladoVisual() {
+  if (!window.visualViewport) return 0;
+
+  const viewport = window.visualViewport;
+  const inset = window.innerHeight - (viewport.height + viewport.offsetTop);
+
+  return Math.max(0, Math.round(inset));
+}
+
+function actualizarBotonesCrearTrabajoMovil() {
+  const acciones = document.querySelector(".acciones-crear-trabajo");
+  if (!acciones) return;
+
+  const esMovil = window.innerWidth <= 640;
+  const activo = document.activeElement;
+
+  const campoAbierto =
+    activo &&
+    (activo.id === "descripcion" || activo.id === "solicitanteInterno");
+
+  if (!esMovil) {
+    acciones.classList.remove("flotante-movil");
+    acciones.style.bottom = "";
+    return;
+  }
+
+  if (!campoAbierto && !mantenerAccionesCrearTrabajoFlotantes) {
+    acciones.classList.remove("flotante-movil");
+    acciones.style.bottom = "";
+    return;
+  }
+
+  acciones.classList.add("flotante-movil");
+
+  const inset = obtenerInsetTecladoVisual();
+  acciones.style.bottom = `${Math.max(10, inset + 10)}px`;
+}
+
+function registrarComportamientoBotonesCrearTrabajoMovil() {
+  const descripcion = document.getElementById("descripcion");
+  const solicitante = document.getElementById("solicitanteInterno");
+  const acciones = document.querySelector(".acciones-crear-trabajo");
+
+  if (descripcion) {
+    descripcion.addEventListener("focus", actualizarBotonesCrearTrabajoMovil);
+    descripcion.addEventListener("blur", () => {
+      setTimeout(() => {
+        if (!mantenerAccionesCrearTrabajoFlotantes) {
+          actualizarBotonesCrearTrabajoMovil();
+        }
+      }, 120);
+    });
+    descripcion.addEventListener("input", actualizarBotonesCrearTrabajoMovil);
+  }
+
+  if (solicitante) {
+    solicitante.addEventListener("focus", actualizarBotonesCrearTrabajoMovil);
+    solicitante.addEventListener("blur", () => {
+      setTimeout(() => {
+        if (!mantenerAccionesCrearTrabajoFlotantes) {
+          actualizarBotonesCrearTrabajoMovil();
+        }
+      }, 120);
+    });
+    solicitante.addEventListener("input", actualizarBotonesCrearTrabajoMovil);
+  }
+
+  if (acciones) {
+    acciones.addEventListener("pointerdown", () => {
+      mantenerAccionesCrearTrabajoFlotantes = true;
+      actualizarBotonesCrearTrabajoMovil();
+    });
+
+    acciones.addEventListener("pointerup", () => {
+      setTimeout(() => {
+        mantenerAccionesCrearTrabajoFlotantes = false;
+        actualizarBotonesCrearTrabajoMovil();
+      }, 220);
+    });
+
+    acciones.addEventListener("click", () => {
+      setTimeout(() => {
+        mantenerAccionesCrearTrabajoFlotantes = false;
+        actualizarBotonesCrearTrabajoMovil();
+      }, 220);
+    });
+  }
+
+  window.addEventListener("resize", actualizarBotonesCrearTrabajoMovil);
+
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener(
+      "resize",
+      actualizarBotonesCrearTrabajoMovil,
+    );
+    window.visualViewport.addEventListener(
+      "scroll",
+      actualizarBotonesCrearTrabajoMovil,
+    );
+  }
+
+  document.addEventListener("focusin", actualizarBotonesCrearTrabajoMovil);
+  document.addEventListener("focusout", () => {
+    setTimeout(() => {
+      if (!mantenerAccionesCrearTrabajoFlotantes) {
+        actualizarBotonesCrearTrabajoMovil();
+      }
+    }, 120);
+  });
 }
 
 async function cargarVendedores() {
@@ -6011,7 +6123,7 @@ async function iniciarAplicacion() {
   try {
     inyectarEstilosTrabajosMixtos();
     await cargarVendedores();
-
+    registrarComportamientoBotonesCrearTrabajoMovil();
     const panelSnap = await window.db.collection("config").doc("panel").get();
     const panelConfig = panelSnap.exists ? panelSnap.data() : {};
 
