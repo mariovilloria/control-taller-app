@@ -341,6 +341,31 @@ function finalizarAccion(clave) {
   accionesEnProceso.delete(clave);
 }
 
+function inyectarEstilosTrabajosMixtos() {
+  if (document.getElementById("estilos-trabajos-mixtos")) return;
+
+  const style = document.createElement("style");
+  style.id = "estilos-trabajos-mixtos";
+  style.textContent = `
+    .trabajo-card.trabajo-en-proceso-mixto {
+      border: 2px solid #f59e0b !important;
+      box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.12);
+    }
+
+    .trabajo-card.trabajo-en-proceso-mixto .trabajo-top-linea {
+      background: rgba(245, 158, 11, 0.08);
+      border-radius: 10px;
+      padding: 6px 8px;
+    }
+
+    .trabajo-card.trabajo-en-proceso-mixto .trabajo-titulo {
+      color: #b45309;
+    }
+  `;
+
+  document.head.appendChild(style);
+}
+
 function estadoVisualTrabajo(trabajo) {
   const actividades = Array.isArray(trabajo?.actividades)
     ? trabajo.actividades
@@ -575,6 +600,19 @@ function resumenTrabajoColapsado(trabajo) {
   `;
 }
 
+function participanteEstaEnAlmuerzo(participante) {
+  const tecnicoId = Number(participante?.tecnico_id || 0);
+  if (!tecnicoId) return false;
+
+  const tecnicoReal = Array.isArray(ultimoResumen?.tecnicos)
+    ? ultimoResumen.tecnicos.find((t) => Number(t?.id) === tecnicoId)
+    : null;
+
+  if (!tecnicoReal) return false;
+
+  return String(tecnicoReal?.estado || "").toLowerCase() === "almuerzo";
+}
+
 function htmlTecnicosActividad(trabajo, act) {
   const participantes = Array.isArray(act?.participantes)
     ? act.participantes.filter((p) => p?.visible_en_tarjeta !== false)
@@ -584,13 +622,15 @@ function htmlTecnicosActividad(trabajo, act) {
     (p) => String(p?.estado || "").toLowerCase() === "activo",
   );
 
-  const participantesAlmuerzo = participantes.filter(
-    (p) => String(p?.estado || "").toLowerCase() === "almuerzo",
-  );
+  const participantesAlmuerzo = participantes.filter((p) => {
+    const estado = String(p?.estado || "").toLowerCase();
+    return estado === "pausado" && participanteEstaEnAlmuerzo(p);
+  });
 
-  const participantesPausados = participantes.filter(
-    (p) => String(p?.estado || "").toLowerCase() === "pausado",
-  );
+  const participantesPausados = participantes.filter((p) => {
+    const estado = String(p?.estado || "").toLowerCase();
+    return estado === "pausado" && !participanteEstaEnAlmuerzo(p);
+  });
 
   const participantesFinalizados = participantes.filter(
     (p) => String(p?.estado || "").toLowerCase() === "finalizado",
@@ -598,7 +638,12 @@ function htmlTecnicosActividad(trabajo, act) {
 
   const participantesOtros = participantes.filter((p) => {
     const estado = String(p?.estado || "").toLowerCase();
-    return !["activo", "almuerzo", "pausado", "finalizado"].includes(estado);
+
+    if (estado === "activo") return false;
+    if (estado === "finalizado") return false;
+    if (estado === "pausado") return false;
+
+    return true;
   });
 
   const calcularTiempoParticipanteSeg = (participante) => {
@@ -651,7 +696,9 @@ function htmlTecnicosActividad(trabajo, act) {
     const estado = String(participante?.estado || "").toLowerCase();
 
     if (estado === "activo") return "Trabajando";
-    if (estado === "almuerzo") return "Almorzando";
+    if (estado === "pausado" && participanteEstaEnAlmuerzo(participante)) {
+      return "Almorzando";
+    }
     if (estado === "pausado") return "Pausado";
     if (estado === "finalizado") return "Finalizado";
     if (estado === "liberado") return "Liberado";
@@ -663,7 +710,9 @@ function htmlTecnicosActividad(trabajo, act) {
     const estado = String(participante?.estado || "").toLowerCase();
 
     if (estado === "activo") return "trabajando";
-    if (estado === "almuerzo") return "almuerzo";
+    if (estado === "pausado" && participanteEstaEnAlmuerzo(participante)) {
+      return "almuerzo";
+    }
     if (estado === "pausado") return "pausado";
     if (estado === "finalizado") return "finalizado";
     if (estado === "liberado") return "liberado";
@@ -672,10 +721,15 @@ function htmlTecnicosActividad(trabajo, act) {
   };
 
   const htmlParticipante = (p, esActivo = false) => {
-    const estado = String(p?.estado || "").toLowerCase();
     const tiempoTrabajo = formatearDuracion(calcularTiempoParticipanteSeg(p));
-    const infoAlmuerzo =
-      estado === "almuerzo" ? obtenerInfoAlmuerzoParticipante(p) : "";
+    const infoAlmuerzo = participanteEstaEnAlmuerzo(p)
+      ? obtenerInfoAlmuerzoParticipante(p)
+      : "";
+    const puedeReanudar =
+      String(act?.estado || "").toLowerCase() === "en_proceso" &&
+      String(p?.estado || "").toLowerCase() === "pausado" &&
+      !participanteEstaEnAlmuerzo(p) &&
+      tecnicoDisponibleParaReanudarParticipacion(p?.tecnico_id);
 
     return `
 <div class="tecnico-trabajo-item" style="margin-top:8px;">
@@ -701,19 +755,42 @@ ${escapeHtml(infoAlmuerzo)}
       : ""
   }
 
-  ${
-    esActivo && puedeGestionar()
-      ? `
-<div class="tecnico-trabajo-acciones">
+${
+  esActivo && puedeGestionar()
+    ? `
+<div class="tecnico-trabajo-acciones" onclick="event.stopPropagation()">
   <button
+    type="button"
+    class="btn-icono-trabajo pausar"
+    title="Pausar participación"
+    onclick='event.stopPropagation(); pedirPausarParticipacion(${trabajo.id}, ${JSON.stringify(act.id || "")}, ${Number(p.tecnico_id)})'
+  >⏸</button>
+
+  <button
+    type="button"
     class="btn-icono-trabajo finalizar"
-    title="Liberar técnico"
+    title="Finalizar participación"
     onclick="event.stopPropagation(); pedirLiberarTecnico(${trabajo.id}, ${JSON.stringify(p.tecnico_id)})"
-  >🔓</button>
+  >✓</button>
 </div>
 `
-      : ""
-  }
+    : ""
+}
+
+${
+  puedeReanudar && puedeGestionar()
+    ? `
+<div class="tecnico-trabajo-acciones" onclick="event.stopPropagation()">
+  <button
+    type="button"
+    class="btn-icono-trabajo reanudar"
+    title="Reanudar participación"
+    onclick='event.stopPropagation(); reanudarParticipacionEnActividad(${trabajo.id}, ${JSON.stringify(act.id || "")}, ${Number(p.tecnico_id)})'
+  >▶</button>
+</div>
+`
+    : ""
+}
 
   ${
     p.asignado_por_nombre
@@ -1039,6 +1116,56 @@ function contarActividadesSinTecnico(trabajo) {
   }).length;
 }
 
+function tienePendientesInternasEnProceso(trabajo) {
+  if (estadoVisualTrabajo(trabajo) !== "en_proceso") {
+    return false;
+  }
+
+  const actividades = Array.isArray(trabajo?.actividades)
+    ? trabajo.actividades
+    : [];
+
+  const tieneActividadPausada = actividades.some(
+    (a) => String(a?.estado || "").toLowerCase() === "pausado",
+  );
+
+  const tieneActividadSinTecnico = contarActividadesSinTecnico(trabajo) > 0;
+
+  const tieneParticipacionPausadaEnActividadEnProceso = actividades.some(
+    (a) => {
+      const estadoActividad = String(a?.estado || "").toLowerCase();
+      if (estadoActividad !== "en_proceso") return false;
+
+      const participantes = Array.isArray(a?.participantes)
+        ? a.participantes
+        : [];
+
+      return participantes.some(
+        (p) => String(p?.estado || "").toLowerCase() === "pausado",
+      );
+    },
+  );
+
+  return (
+    tieneActividadPausada ||
+    tieneActividadSinTecnico ||
+    tieneParticipacionPausadaEnActividadEnProceso
+  );
+}
+
+function tecnicoDisponibleParaReanudarParticipacion(tecnicoId) {
+  const tecnico = Array.isArray(ultimoResumen?.tecnicos)
+    ? ultimoResumen.tecnicos.find((t) => Number(t?.id) === Number(tecnicoId))
+    : null;
+
+  if (!tecnico) return false;
+
+  return (
+    tecnico.activo !== false &&
+    String(tecnico.estado || "").toLowerCase() === "libre"
+  );
+}
+
 function resumirEstadosTrabajoDesdeActividades(actividades) {
   const lista = Array.isArray(actividades) ? actividades : [];
 
@@ -1167,7 +1294,9 @@ function crearCardTrabajo(tr) {
   const fechaLabel = etiquetaFechaTrabajo(tr, estadoVisual);
   const arrastrado = trabajoArrastradoDesdeAntesDelCierre(tr, estadoVisual);
   const sinTecnico = contarActividadesSinTecnico(tr);
-  div.className = `trabajo-card estado-${estadoVisual} ${expandido ? "expandido" : "colapsado"} ${arrastrado ? "trabajo-arrastrado" : ""} ${tr.origen === "interno" ? "trabajo-interno" : "trabajo-vendedor"}`;
+  const tienePendientesInternas = tienePendientesInternasEnProceso(tr);
+
+  div.className = `trabajo-card estado-${estadoVisual} ${expandido ? "expandido" : "colapsado"} ${arrastrado ? "trabajo-arrastrado" : ""} ${tr.origen === "interno" ? "trabajo-interno" : "trabajo-vendedor"} ${tienePendientesInternas ? "trabajo-en-proceso-mixto" : ""}`;
   div.dataset.estado = estadoVisual;
   div.id = `trabajo-card-${tr.id}`;
   div.onclick = () => toggleTrabajoCard(tr.id);
@@ -1440,7 +1569,6 @@ function toggleTecnicoPanel(tecnicoId) {
   }
   renderizarPanelPrincipal(ultimoResumen);
 }
-
 function obtenerTrabajosPorEstado(trabajos) {
   const lista = Array.isArray(trabajos) ? [...trabajos] : [];
 
@@ -1456,6 +1584,13 @@ function obtenerTrabajosPorEstado(trabajos) {
   const trabajosPendientes = lista
     .filter((t) => estadoVisualTrabajo(t) === "pendiente")
     .sort((a, b) => {
+      const sinTecnicoA = contarActividadesSinTecnico(a);
+      const sinTecnicoB = contarActividadesSinTecnico(b);
+
+      if (sinTecnicoA !== sinTecnicoB) {
+        return sinTecnicoB - sinTecnicoA;
+      }
+
       const fa = obtenerFechaMs(a.espera_desde, a.created_at);
       const fb = obtenerFechaMs(b.espera_desde, b.created_at);
       return fa - fb;
@@ -1464,14 +1599,36 @@ function obtenerTrabajosPorEstado(trabajos) {
   const trabajosProceso = lista
     .filter((t) => estadoVisualTrabajo(t) === "en_proceso")
     .sort((a, b) => {
-      const fa = obtenerFechaMs(a.inicio_proceso_at, a.created_at);
-      const fb = obtenerFechaMs(b.inicio_proceso_at, b.created_at);
+      const sinTecnicoA = contarActividadesSinTecnico(a);
+      const sinTecnicoB = contarActividadesSinTecnico(b);
+
+      if (sinTecnicoA !== sinTecnicoB) {
+        return sinTecnicoB - sinTecnicoA;
+      }
+
+      const fa = obtenerFechaMs(
+        a.inicio_proceso_at,
+        a.primer_inicio_at,
+        a.created_at,
+      );
+      const fb = obtenerFechaMs(
+        b.inicio_proceso_at,
+        b.primer_inicio_at,
+        b.created_at,
+      );
       return fb - fa;
     });
 
   const trabajosPausados = lista
     .filter((t) => estadoVisualTrabajo(t) === "pausado")
     .sort((a, b) => {
+      const sinTecnicoA = contarActividadesSinTecnico(a);
+      const sinTecnicoB = contarActividadesSinTecnico(b);
+
+      if (sinTecnicoA !== sinTecnicoB) {
+        return sinTecnicoB - sinTecnicoA;
+      }
+
       const fa = obtenerFechaMs(a.espera_desde, a.created_at);
       const fb = obtenerFechaMs(b.espera_desde, b.created_at);
       return fb - fa;
@@ -1488,7 +1645,6 @@ function obtenerTrabajosPorEstado(trabajos) {
     trabajosFinalizados,
   };
 }
-
 function actualizarContadoresTrabajos({
   trabajosPendientes,
   trabajosProceso,
@@ -2685,7 +2841,7 @@ async function cambiarEstadoTecnico(tecnicoId, payload) {
       ).toLowerCase();
 
       if (nuevoEstado === "almuerzo") {
-        participante.estado = "almuerzo";
+        participante.estado = "pausado";
         participante.visible_en_tarjeta = true;
       } else {
         participante.estado = "liberado";
@@ -2831,19 +2987,24 @@ async function cambiarEstadoTecnico(tecnicoId, payload) {
         ? [...actividadOrigenAlmuerzo.participantes]
         : [];
 
-      const indexOrigen = participantesOrigen.findIndex(
-        (p) =>
+      const indexOrigen = participantesOrigen.findIndex((p) => {
+        const estado = String(p?.estado || "").toLowerCase();
+
+        return (
           Number(p?.tecnico_id) === Number(tecnicoId) &&
-          String(p?.estado || "").toLowerCase() === "almuerzo",
-      );
+          ["almuerzo", "pausado"].includes(estado)
+        );
+      });
 
       if (indexOrigen !== -1) {
         const participanteOrigen = { ...participantesOrigen[indexOrigen] };
-        participanteOrigen.estado = "liberado";
+
+        participanteOrigen.estado = "pausado";
         participanteOrigen.activo = false;
-        participanteOrigen.visible_en_tarjeta = false;
+        participanteOrigen.visible_en_tarjeta = true;
         participanteOrigen.inicio_actual_at = null;
-        participanteOrigen.pausa_actual_at = null;
+        participanteOrigen.pausa_actual_at =
+          participanteOrigen.pausa_actual_at || new Date().toISOString();
         participanteOrigen.finalizado_at = null;
 
         participantesOrigen[indexOrigen] = participanteOrigen;
@@ -4249,35 +4410,110 @@ async function pedirLiberarTecnico(trabajoId, tecnicoId) {
     ? actividadActual.tecnicos_activos_ids.length
     : 0;
 
+  const nombreTecnico = tecnico?.nombre || "Técnico";
+  const nombreActividad = actividadActual.descripcion || "Actividad";
+
   if (cantidadActivos <= 1) {
-    abrirModalTrabajoSinTecnicos({
-      trabajo: {
-        ...trabajo,
-        actividades: [actividadActual],
-      },
-      contexto:
-        "Este técnico saldrá de la actividad actual y la actividad quedará sin técnicos activos. ¿Qué deseas hacer con ella?",
-      tecnicosMovidos: [tecnico || { id: tecnicoId, nombre: "Técnico" }],
-      onResolver: async (accion) => {
-        if (accion === "__cancelar__") return;
-        await liberarTecnicoDeTrabajo(trabajoId, tecnicoId, accion);
+    abrirModalConfirmacion({
+      titulo: "Finalizar participación",
+      texto:
+        "Este técnico es el último activo en la actividad. Su participación se finalizará y la actividad también quedará finalizada.",
+      destacado: `
+<strong>Técnico:</strong> ${escapeHtml(nombreTecnico)}<br>
+<strong>Actividad:</strong> ${escapeHtml(nombreActividad)}
+`,
+      boton: "Finalizar participación",
+      claseBoton: "btn-principal",
+      onConfirm: async () => {
+        await liberarTecnicoDeTrabajo(trabajoId, tecnicoId, "finalizado");
       },
     });
     return;
   }
 
   abrirModalConfirmacion({
-    titulo: "Liberar técnico",
+    titulo: "Finalizar participación",
     texto:
-      "Vas a cerrar la participación de este técnico en la actividad actual.",
+      "Este técnico dejará de participar en la actividad actual y quedará libre para otra asignación.",
     destacado: `
-<strong>Técnico:</strong> ${escapeHtml(tecnico?.nombre || "Técnico")}<br>
-<strong>Actividad:</strong> ${escapeHtml(actividadActual.descripcion || "Actividad")}
+<strong>Técnico:</strong> ${escapeHtml(nombreTecnico)}<br>
+<strong>Actividad:</strong> ${escapeHtml(nombreActividad)}
 `,
-    boton: "Liberar técnico",
-    claseBoton: "btn-danger",
+    boton: "Finalizar participación",
+    claseBoton: "btn-principal",
     onConfirm: async () => {
-      await liberarTecnicoDeTrabajo(trabajoId, tecnicoId);
+      await liberarTecnicoDeTrabajo(trabajoId, tecnicoId, "finalizado");
+    },
+  });
+}
+
+async function pedirPausarParticipacion(trabajoId, actividadId, tecnicoId) {
+  if (!validarBatuta()) return;
+
+  const trabajo = (ultimoResumen.trabajos || []).find(
+    (t) => Number(t.id) === Number(trabajoId),
+  );
+  const tecnico = (ultimoResumen.tecnicos || []).find(
+    (t) => Number(t.id) === Number(tecnicoId),
+  );
+
+  if (!trabajo) {
+    alert("No se encontró el trabajo.");
+    return;
+  }
+
+  const actividades = Array.isArray(trabajo.actividades)
+    ? trabajo.actividades
+    : [];
+
+  const actividadActual = actividades.find(
+    (a) => String(a?.id || "").trim() === String(actividadId || "").trim(),
+  );
+
+  if (!actividadActual) {
+    alert("No se encontró la actividad.");
+    return;
+  }
+
+  actividadAsignacionId = String(actividadActual.id || "").trim();
+
+  const cantidadActivos = Array.isArray(actividadActual.tecnicos_activos_ids)
+    ? actividadActual.tecnicos_activos_ids.length
+    : 0;
+
+  const nombreTecnico = tecnico?.nombre || "Técnico";
+  const nombreActividad = actividadActual.descripcion || "Actividad";
+
+  if (cantidadActivos <= 1) {
+    abrirModalConfirmacion({
+      titulo: "Pausar participación",
+      texto:
+        "Este técnico es el último activo en la actividad. Su participación se pausará y la actividad también quedará pausada.",
+      destacado: `
+<strong>Técnico:</strong> ${escapeHtml(nombreTecnico)}<br>
+<strong>Actividad:</strong> ${escapeHtml(nombreActividad)}
+`,
+      boton: "Pausar participación",
+      claseBoton: "btn-secundario",
+      onConfirm: async () => {
+        await liberarTecnicoDeTrabajo(trabajoId, tecnicoId, "pausado");
+      },
+    });
+    return;
+  }
+
+  abrirModalConfirmacion({
+    titulo: "Pausar participación",
+    texto:
+      "Este técnico saldrá temporalmente de la actividad actual y podrá retomarla después.",
+    destacado: `
+<strong>Técnico:</strong> ${escapeHtml(nombreTecnico)}<br>
+<strong>Actividad:</strong> ${escapeHtml(nombreActividad)}
+`,
+    boton: "Pausar participación",
+    claseBoton: "btn-secundario",
+    onConfirm: async () => {
+      await liberarTecnicoDeTrabajo(trabajoId, tecnicoId, "pausado");
     },
   });
 }
@@ -4343,17 +4579,17 @@ async function liberarTecnicoDeTrabajo(
       }
     }
 
-    let accionFinal = "liberado";
-
-    if (accionSiVacio === "finalizado") {
-      accionFinal = "finalizado";
-    }
+    const accionFinal =
+      String(accionSiVacio || "").toLowerCase() === "pausado"
+        ? "pausado"
+        : "finalizado";
 
     participante.estado = accionFinal;
     participante.activo = false;
     participante.inicio_actual_at = null;
-    participante.pausa_actual_at = null;
+    participante.pausa_actual_at = accionFinal === "pausado" ? ahoraIso : null;
     participante.finalizado_at = accionFinal === "finalizado" ? ahoraIso : null;
+    participante.visible_en_tarjeta = true;
 
     participantes[index] = participante;
 
@@ -4395,7 +4631,7 @@ async function liberarTecnicoDeTrabajo(
 
     if (activosIds.length === 0) {
       nuevoEstadoActividad =
-        accionFinal === "finalizado" ? "finalizado" : "pausado";
+        accionFinal === "pausado" ? "pausado" : "finalizado";
     }
 
     const actividadUpdate = {
@@ -4431,8 +4667,15 @@ async function liberarTecnicoDeTrabajo(
       };
     });
 
-    const { nuevoEstadoTrabajo } =
-      resumirEstadosTrabajoDesdeActividades(actividadesRestantes);
+    const {
+      nuevoEstadoTrabajo,
+      actividadesPendientes,
+      actividadesEnProceso,
+      actividadesPausadas,
+      actividadesFinalizadas,
+      tecnicosActivosTotal,
+      tecnicosParticipantesCount,
+    } = resumirEstadosTrabajoDesdeActividades(actividadesRestantes);
 
     const batch = window.db.batch();
 
@@ -4444,15 +4687,6 @@ async function liberarTecnicoDeTrabajo(
       almuerzo_desde: null,
       almuerzo_hasta: null,
     });
-
-    const {
-      actividadesPendientes,
-      actividadesEnProceso,
-      actividadesPausadas,
-      actividadesFinalizadas,
-      tecnicosActivosTotal,
-      tecnicosParticipantesCount,
-    } = resumirEstadosTrabajoDesdeActividades(actividadesRestantes);
 
     batch.update(trabajoRef, {
       estado: nuevoEstadoTrabajo,
@@ -4469,8 +4703,319 @@ async function liberarTecnicoDeTrabajo(
 
     await batch.commit();
   } catch (error) {
-    console.error("Error liberando técnico:", error);
-    alert("No se pudo liberar el técnico.");
+    console.error("Error actualizando participación del técnico:", error);
+    alert("No se pudo actualizar la participación del técnico.");
+  } finally {
+    finalizarAccion(clave);
+  }
+}
+
+async function reanudarParticipacionEnActividad(
+  trabajoId,
+  actividadId,
+  tecnicoId,
+) {
+  if (!validarBatuta()) return;
+
+  const clave = `reanudar-participacion-${trabajoId}-${actividadId}-${tecnicoId}`;
+  if (!iniciarAccion(clave)) return;
+
+  try {
+    const actividadIdTexto = String(actividadId || "").trim();
+
+    const trabajoRef = window.db.collection("trabajos").doc(String(trabajoId));
+    const actividadRef = window.db
+      .collection("actividades")
+      .doc(actividadIdTexto);
+    const tecnicoRef = window.db.collection("tecnicos").doc(String(tecnicoId));
+
+    const [trabajoSnap, actividadSnap, tecnicoSnap] = await Promise.all([
+      trabajoRef.get(),
+      actividadRef.get(),
+      tecnicoRef.get(),
+    ]);
+
+    if (!trabajoSnap.exists || !actividadSnap.exists || !tecnicoSnap.exists) {
+      alert("No se encontraron los datos para reanudar la participación.");
+      return;
+    }
+
+    const trabajo = trabajoSnap.data() || {};
+    const actividad = actividadSnap.data() || {};
+    const tecnico = tecnicoSnap.data() || {};
+
+    if (String(tecnico.estado || "").toLowerCase() !== "libre") {
+      alert("Este técnico no está libre para reanudar su participación.");
+      return;
+    }
+
+    const participantes = Array.isArray(actividad.participantes)
+      ? [...actividad.participantes]
+      : [];
+
+    const index = participantes.findIndex(
+      (p) =>
+        Number(p?.tecnico_id) === Number(tecnicoId) &&
+        String(p?.estado || "").toLowerCase() === "pausado",
+    );
+
+    if (index === -1) {
+      alert("No se encontró una participación pausada para este técnico.");
+      return;
+    }
+
+    const participante = { ...participantes[index] };
+    const ahoraIso = new Date().toISOString();
+
+    participante.estado = "activo";
+    participante.activo = true;
+    participante.inicio_actual_at = ahoraIso;
+    participante.pausa_actual_at = null;
+    participante.finalizado_at = null;
+    participante.visible_en_tarjeta = true;
+
+    participantes[index] = participante;
+
+    const activosIds = Array.isArray(actividad.tecnicos_activos_ids)
+      ? [...actividad.tecnicos_activos_ids]
+      : [];
+    const activosNombres = Array.isArray(actividad.tecnicos_activos_nombres)
+      ? [...actividad.tecnicos_activos_nombres]
+      : [];
+
+    if (!activosIds.some((id) => Number(id) === Number(tecnicoId))) {
+      activosIds.push(Number(tecnicoId));
+    }
+
+    const nombreTecnico =
+      participante.tecnico_nombre || tecnico.nombre || "Técnico";
+
+    if (!activosNombres.includes(nombreTecnico)) {
+      activosNombres.push(nombreTecnico);
+    }
+
+    const actividadUpdate = {
+      participantes,
+      estado: "en_proceso",
+      primer_inicio_at: actividad.primer_inicio_at || ahoraIso,
+      ultima_reanudacion_at: ahoraIso,
+      ultima_actividad_at: ahoraIso,
+      inicio_tramo_activo_at: ahoraIso,
+      inicio_tramo_pausa_at: null,
+      finalizado_at: null,
+      tecnicos_activos_ids: activosIds,
+      tecnicos_activos_nombres: activosNombres,
+      tecnicos_activos_count: activosIds.length,
+    };
+
+    const actividadesTrabajo = Array.isArray(ultimoResumen?.trabajos)
+      ? ultimoResumen.trabajos.find((t) => Number(t.id) === Number(trabajoId))
+          ?.actividades || []
+      : [];
+
+    const actividadesActualizadas = actividadesTrabajo.map((a) => {
+      if (String(a?.id || "").trim() !== actividadIdTexto) return a;
+      return {
+        ...a,
+        ...actividad,
+        ...actividadUpdate,
+      };
+    });
+
+    const {
+      nuevoEstadoTrabajo,
+      actividadesPendientes,
+      actividadesEnProceso,
+      actividadesPausadas,
+      actividadesFinalizadas,
+      tecnicosActivosTotal,
+      tecnicosParticipantesCount,
+    } = resumirEstadosTrabajoDesdeActividades(actividadesActualizadas);
+
+    const batch = window.db.batch();
+
+    batch.update(actividadRef, actividadUpdate);
+
+    batch.update(tecnicoRef, {
+      estado: "trabajando",
+      trabajo_id: Number(trabajoId),
+      almuerzo_desde: null,
+      almuerzo_hasta: null,
+    });
+
+    batch.update(trabajoRef, {
+      estado: nuevoEstadoTrabajo,
+      primer_inicio_at: trabajo.primer_inicio_at || ahoraIso,
+      ultima_actividad_at: ahoraIso,
+      finalizado_at: nuevoEstadoTrabajo === "finalizado" ? ahoraIso : null,
+      total_actividades: actividadesActualizadas.length,
+      actividades_pendientes: actividadesPendientes,
+      actividades_en_proceso: actividadesEnProceso,
+      actividades_pausadas: actividadesPausadas,
+      actividades_finalizadas: actividadesFinalizadas,
+      tecnicos_activos_count: tecnicosActivosTotal,
+      tecnicos_participantes_count: tecnicosParticipantesCount,
+    });
+
+    await batch.commit();
+  } catch (error) {
+    console.error("Error reanudando participación:", error);
+    alert("No se pudo reanudar la participación del técnico.");
+  } finally {
+    finalizarAccion(clave);
+  }
+}
+
+async function reanudarParticipacionEnActividad(
+  trabajoId,
+  actividadId,
+  tecnicoId,
+) {
+  if (!validarBatuta()) return;
+
+  const clave = `reanudar-participacion-${trabajoId}-${actividadId}-${tecnicoId}`;
+  if (!iniciarAccion(clave)) return;
+
+  try {
+    const actividadIdTexto = String(actividadId || "").trim();
+
+    const trabajoRef = window.db.collection("trabajos").doc(String(trabajoId));
+    const actividadRef = window.db
+      .collection("actividades")
+      .doc(actividadIdTexto);
+    const tecnicoRef = window.db.collection("tecnicos").doc(String(tecnicoId));
+
+    const [trabajoSnap, actividadSnap, tecnicoSnap] = await Promise.all([
+      trabajoRef.get(),
+      actividadRef.get(),
+      tecnicoRef.get(),
+    ]);
+
+    if (!trabajoSnap.exists || !actividadSnap.exists || !tecnicoSnap.exists) {
+      alert("No se encontraron los datos para reanudar la participación.");
+      return;
+    }
+
+    const trabajo = trabajoSnap.data() || {};
+    const actividad = actividadSnap.data() || {};
+    const tecnico = tecnicoSnap.data() || {};
+
+    if (String(tecnico.estado || "").toLowerCase() !== "libre") {
+      alert("Este técnico no está libre para reanudar su participación.");
+      return;
+    }
+
+    const participantes = Array.isArray(actividad.participantes)
+      ? [...actividad.participantes]
+      : [];
+
+    const index = participantes.findIndex(
+      (p) =>
+        Number(p?.tecnico_id) === Number(tecnicoId) &&
+        String(p?.estado || "").toLowerCase() === "pausado",
+    );
+
+    if (index === -1) {
+      alert("No se encontró una participación pausada para este técnico.");
+      return;
+    }
+
+    const participante = { ...participantes[index] };
+    const ahoraIso = new Date().toISOString();
+
+    participante.estado = "activo";
+    participante.activo = true;
+    participante.inicio_actual_at = ahoraIso;
+    participante.pausa_actual_at = null;
+    participante.finalizado_at = null;
+    participante.visible_en_tarjeta = true;
+
+    participantes[index] = participante;
+
+    const activosIds = Array.isArray(actividad.tecnicos_activos_ids)
+      ? [...actividad.tecnicos_activos_ids]
+      : [];
+    const activosNombres = Array.isArray(actividad.tecnicos_activos_nombres)
+      ? [...actividad.tecnicos_activos_nombres]
+      : [];
+
+    if (!activosIds.some((id) => Number(id) === Number(tecnicoId))) {
+      activosIds.push(Number(tecnicoId));
+    }
+
+    const nombreTecnico =
+      participante.tecnico_nombre || tecnico.nombre || "Técnico";
+    if (!activosNombres.includes(nombreTecnico)) {
+      activosNombres.push(nombreTecnico);
+    }
+
+    const actividadUpdate = {
+      participantes,
+      estado: "en_proceso",
+      primer_inicio_at: actividad.primer_inicio_at || ahoraIso,
+      ultima_reanudacion_at: ahoraIso,
+      ultima_actividad_at: ahoraIso,
+      inicio_tramo_activo_at: ahoraIso,
+      inicio_tramo_pausa_at: null,
+      finalizado_at: null,
+      tecnicos_activos_ids: activosIds,
+      tecnicos_activos_nombres: activosNombres,
+      tecnicos_activos_count: activosIds.length,
+    };
+
+    const actividadesTrabajo = Array.isArray(ultimoResumen?.trabajos)
+      ? ultimoResumen.trabajos.find((t) => Number(t.id) === Number(trabajoId))
+          ?.actividades || []
+      : [];
+
+    const actividadesActualizadas = actividadesTrabajo.map((a) => {
+      if (String(a?.id || "").trim() !== actividadIdTexto) return a;
+      return {
+        ...a,
+        ...actividad,
+        ...actividadUpdate,
+      };
+    });
+
+    const {
+      nuevoEstadoTrabajo,
+      actividadesPendientes,
+      actividadesEnProceso,
+      actividadesPausadas,
+      actividadesFinalizadas,
+      tecnicosActivosTotal,
+      tecnicosParticipantesCount,
+    } = resumirEstadosTrabajoDesdeActividades(actividadesActualizadas);
+
+    const batch = window.db.batch();
+
+    batch.update(actividadRef, actividadUpdate);
+
+    batch.update(tecnicoRef, {
+      estado: "trabajando",
+      trabajo_id: Number(trabajoId),
+      almuerzo_desde: null,
+      almuerzo_hasta: null,
+    });
+
+    batch.update(trabajoRef, {
+      estado: nuevoEstadoTrabajo,
+      primer_inicio_at: trabajo.primer_inicio_at || ahoraIso,
+      ultima_actividad_at: ahoraIso,
+      finalizado_at: nuevoEstadoTrabajo === "finalizado" ? ahoraIso : null,
+      total_actividades: actividadesActualizadas.length,
+      actividades_pendientes: actividadesPendientes,
+      actividades_en_proceso: actividadesEnProceso,
+      actividades_pausadas: actividadesPausadas,
+      actividades_finalizadas: actividadesFinalizadas,
+      tecnicos_activos_count: tecnicosActivosTotal,
+      tecnicos_participantes_count: tecnicosParticipantesCount,
+    });
+
+    await batch.commit();
+  } catch (error) {
+    console.error("Error reanudando participación:", error);
+    alert("No se pudo reanudar la participación del técnico.");
   } finally {
     finalizarAccion(clave);
   }
@@ -5577,6 +6122,7 @@ window.onclick = function (event) {
 
 async function iniciarAplicacion() {
   try {
+    inyectarEstilosTrabajosMixtos();
     await cargarVendedores();
 
     const panelSnap = await window.db.collection("config").doc("panel").get();
