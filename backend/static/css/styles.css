@@ -79,9 +79,14 @@ select:focus,
     margin-top: 14px;
     display: flex;
     gap: 10px;
-    flex-wrap: wrap;
-}
 
+    flex-wrap: nowrap;      /* 🔥 nunca baja de línea */
+    overflow-x: auto;       /* 👉 scroll horizontal si no cabe */
+    white-space: nowrap;    /* refuerzo */
+}
+.acciones > * {
+    flex: 0 0 auto;   /* 👈 evita que se deformen los botones */
+}
 .btn-principal,
 .btn-secundario,
 .btn-danger,
@@ -339,27 +344,74 @@ button:disabled {
 
 .trabajo-top-linea {
     display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+    padding-bottom: 2px;
+}
+
+.trabajo-top-fila {
+    display: grid;
+    align-items: center;
+}
+
+.trabajo-top-fila-1 {
+    grid-template-columns: 110px 1fr 110px;
     gap: 10px;
 }
 
-.trabajo-top-izq {
+.trabajo-top-fila-2 {
+    justify-content: center;
+}
+
+.trabajo-top-fila-3 {
+    justify-content: center;
+}
+
+.trabajo-top-minutos {
     display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
+    justify-content: flex-start;
     align-items: center;
-    min-height: 24px;
+    min-width: 0;
+    font-size: 16px;      /* 🔥 nuevo */
+    font-weight: 600;     /* 🔥 nuevo */
+}
+
+.trabajo-top-alerta {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-width: 0;
+    white-space: nowrap;   /* 🔥 ESTE ES EL CAMBIO */
+}
+
+.trabajo-top-alerta-vacio {
+    min-height: 1px;
+}
+
+.trabajo-top-orden {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    min-width: 0;
+    font-size: 16px;      /* 🔥 nuevo */
+    font-weight: 600;     /* 🔥 nuevo */
 }
 
 .trabajo-acciones-icono {
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 6px;
-    flex-wrap: wrap;
-    justify-content: flex-end;
+    flex-wrap: nowrap;
 }
 
+.trabajo-top-estado-fecha {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
 .btn-icono-trabajo {
     width: 34px;
     height: 34px;
@@ -665,10 +717,11 @@ button:disabled {
 }
 
 .tecnico-trabajo-item {
-    background: #f8fafc;
-    border: 1px solid #e8eef5;
+    background: #f5f8fc;
+    border: 1.5px solid #b8c4d3;
     border-radius: 10px;
     padding: 8px 10px;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.6);
 }
 
 .tecnico-trabajo-top {
@@ -1420,17 +1473,74 @@ button:disabled {
         padding: 16px;
     }
 
-    .actividad-header,
-    .trabajo-top-linea,
-    .trabajo-resumen-colapsado-top,
-    .asignacion-card-top,
-    .resumen-tecnico-head {
+.trabajo-resumen-colapsado-top,
+.asignacion-card-top,
+.resumen-tecnico-head {
+    flex-direction: column;
+    align-items: flex-start;
+}
+
+/* 🔥 ACTIVIDAD IGUAL QUE LAPTOP */
+.actividad-header {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.actividad-lado-derecho {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: nowrap;
+}
+
+    .trabajo-top-linea {
+        display: flex;
         flex-direction: column;
-        align-items: flex-start;
+        gap: 8px;
     }
 
-    .actividad-lado-derecho,
+    .trabajo-top-fila-1 {
+        grid-template-columns: 110px 1fr 110px;
+        gap: 10px;
+    }
+
+    .trabajo-top-minutos {
+        justify-content: flex-start;
+    }
+
+    .trabajo-top-alerta {
+        justify-content: center;
+        white-space: nowrap;
+    }
+
+    .trabajo-top-orden {
+        justify-content: flex-end;
+    }
+
+    .trabajo-top-fila-2 {
+        justify-content: center;
+    }
+
     .trabajo-acciones-icono {
+        width: auto;
+        justify-content: center;
+        flex-wrap: nowrap;
+        gap: 6px;
+    }
+
+    .trabajo-top-fila-3 {
+        justify-content: center;
+    }
+
+    .trabajo-top-estado-fecha {
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .actividad-lado-derecho {
         width: 100%;
         justify-content: flex-start;
         flex-wrap: wrap;

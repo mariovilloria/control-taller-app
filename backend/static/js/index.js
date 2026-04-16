@@ -36,6 +36,7 @@ let unsubscribeTecnicos = null;
 let unsubscribeVendedores = null;
 let timerRefrescoMinutos = null;
 let accionPendiente = null;
+let accionCancelPendiente = null;
 let trabajoSinTecnicosPendiente = null;
 const accionesEnProceso = new Set();
 let mantenerAccionesCrearTrabajoFlotantes = false;
@@ -1355,6 +1356,44 @@ function resumirEstadosTrabajoDesdeActividades(actividades) {
   };
 }
 
+function trabajoPendienteSePuedeEliminar(trabajo) {
+  const actividades = Array.isArray(trabajo?.actividades)
+    ? trabajo.actividades
+    : [];
+
+  if (actividades.length === 0) return true;
+
+  return actividades.every((act) => {
+    const estado = String(act?.estado || "").toLowerCase();
+
+    const participantes = Array.isArray(act?.participantes)
+      ? act.participantes
+      : [];
+
+    const tecnicosParticipantesIds = Array.isArray(
+      act?.tecnicos_participantes_ids,
+    )
+      ? act.tecnicos_participantes_ids
+      : [];
+
+    const tuvoParticipacion =
+      participantes.some((p) => Number(p?.tecnico_id || 0) > 0) ||
+      tecnicosParticipantesIds.some((id) => Number(id || 0) > 0);
+
+    if (tuvoParticipacion) return false;
+
+    if (
+      estado === "finalizado" ||
+      estado === "pausado" ||
+      estado === "en_proceso"
+    ) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
 function htmlHeaderTrabajo(
   tr,
   estadoVisual,
@@ -1364,31 +1403,52 @@ function htmlHeaderTrabajo(
   fechaTexto,
   sinTecnico,
 ) {
+  const puedeEliminarPendiente =
+    estadoVisual === "pendiente" &&
+    puedeGestionar() &&
+    trabajoPendienteSePuedeEliminar(tr);
+
   return `
 <div class="trabajo-top-linea">
-<div class="trabajo-top-izq">
-${htmlTiempoPendiente(tr)}
-${arrastrado ? `<div class="fecha-chip chip-arrastrado">↪ Arrastrado</div>` : ""}
-${
-  sinTecnico > 0
-    ? `
-<div class="badge-alerta">
-⚠ ${sinTecnico} sin técnico
-</div>
-`
-    : ""
-}
-<div class="fecha-chip">#${tr.id}</div>
-<div class="fecha-chip">📅 ${escapeHtml(fechaLabel)}: ${escapeHtml(fechaTexto)}</div>
-</div>
-<div class="trabajo-acciones-icono" onclick="event.stopPropagation()">
-<button class="btn-icono-trabajo resumen" title="Ver resumen" onclick="abrirResumenTrabajo(${tr.id})">📋</button>
-${estadoVisual !== "finalizado" && puedeGestionar() ? `<button class="btn-icono-trabajo editar" title="Editar trabajo" onclick='editar(${tr.id}, ${JSON.stringify(tr.descripcion || "")})'>✎</button>` : ""}
-${(estadoVisual === "pendiente" || estadoVisual === "en_proceso") && puedeGestionar() ? `<button class="btn-icono-trabajo asignar" title="Agregar actividad" onclick="agregarActividadATrabajo(${tr.id})">＋</button>` : ""}
-${(estadoVisual === "en_proceso" || estadoVisual === "pausado") && puedeGestionar() ? `<button class="btn-icono-trabajo finalizar" title="Finalizar trabajo completo" onclick="pedirFinalizarTrabajo(${tr.id})">✓</button>` : ""}
-${estadoVisual === "pendiente" && puedeGestionar() ? `<button class="btn-icono-trabajo finalizar" title="Eliminar trabajo" onclick="pedirEliminarTrabajoPendiente(${tr.id})">🗑️</button>` : ""}
-<button class="btn-icono-trabajo colapsar" title="${expandido ? "Colapsar" : "Expandir"}" onclick="toggleTrabajoCard(${tr.id})">${expandido ? "▲" : "▼"}</button>
-</div>
+  <div class="trabajo-top-fila trabajo-top-fila-1">
+    <div class="trabajo-top-minutos">
+      ${htmlTiempoPendiente(tr)}
+    </div>
+
+    <div class="trabajo-top-alerta">
+      ${
+        sinTecnico > 0
+          ? `
+      <div class="badge-alerta">
+        ⚠ ${sinTecnico} sin técnico
+      </div>
+      `
+          : `<div class="trabajo-top-alerta-vacio"></div>`
+      }
+    </div>
+
+    <div class="trabajo-top-orden">
+      <div class="fecha-chip">#${tr.id}</div>
+    </div>
+  </div>
+
+  <div class="trabajo-top-fila trabajo-top-fila-2">
+    <div class="trabajo-acciones-icono" onclick="event.stopPropagation()">
+      <button class="btn-icono-trabajo resumen" title="Ver resumen" onclick="abrirResumenTrabajo(${tr.id})">📋</button>
+      ${estadoVisual !== "finalizado" && puedeGestionar() ? `<button class="btn-icono-trabajo editar" title="Editar trabajo" onclick='editar(${tr.id}, ${JSON.stringify(tr.descripcion || "")})'>✎</button>` : ""}
+      ${(estadoVisual === "pendiente" || estadoVisual === "en_proceso") && puedeGestionar() ? `<button class="btn-icono-trabajo asignar" title="Agregar actividad" onclick="agregarActividadATrabajo(${tr.id})">＋</button>` : ""}
+      ${(estadoVisual === "en_proceso" || estadoVisual === "pausado" || estadoVisual === "pendiente") && puedeGestionar() ? `<button class="btn-icono-trabajo finalizar" title="Finalizar trabajo completo" onclick="pedirFinalizarTrabajo(${tr.id})">✓</button>` : ""}
+      ${puedeEliminarPendiente ? `<button class="btn-icono-trabajo finalizar" title="Eliminar trabajo" onclick="pedirEliminarTrabajoPendiente(${tr.id})">🗑️</button>` : ""}
+      <button class="btn-icono-trabajo colapsar" title="${expandido ? "Colapsar" : "Expandir"}" onclick="toggleTrabajoCard(${tr.id})">${expandido ? "▲" : "▼"}</button>
+    </div>
+  </div>
+
+  <div class="trabajo-top-fila trabajo-top-fila-3">
+    <div class="trabajo-top-estado-fecha">
+      ${arrastrado ? `<div class="fecha-chip chip-arrastrado">↪ Arrastrado</div>` : ""}
+      <div class="fecha-chip">📅 ${escapeHtml(fechaLabel)}: ${escapeHtml(fechaTexto)}</div>
+    </div>
+  </div>
 </div>
 `;
 }
@@ -3590,20 +3650,32 @@ async function eliminarTrabajoPendiente(trabajoId) {
       return;
     }
 
-    const batch = window.db.batch();
+    const actividades = actividadesSnap.docs.map((doc) => doc.data() || {});
+    const trabajoConActividades = {
+      ...trabajo,
+      actividades,
+    };
 
-    // 🔹 Desactivar actividades
+    if (!trabajoPendienteSePuedeEliminar(trabajoConActividades)) {
+      alert(
+        "Este trabajo pendiente ya tiene historial y no se puede eliminar. Debes finalizarlo, no eliminarlo.",
+      );
+      return;
+    }
+
+    const batch = window.db.batch();
+    const ahoraIso = new Date().toISOString();
+
     actividadesSnap.forEach((doc) => {
       batch.update(doc.ref, {
         activo: false,
-        eliminado_at: new Date().toISOString(),
+        eliminado_at: ahoraIso,
       });
     });
 
-    // 🔹 Desactivar trabajo
     batch.update(trabajoRef, {
       activo: false,
-      eliminado_at: new Date().toISOString(),
+      eliminado_at: ahoraIso,
     });
 
     await batch.commit();
@@ -4536,6 +4608,17 @@ async function pedirLiberarTecnico(trabajoId, actividadId, tecnicoId) {
 
   const esUltimoActivo = esActivo && cantidadActivos <= 1;
 
+  const ejecutarFinalizacionParticipacion = async () => {
+    await liberarTecnicoDeTrabajo(
+      trabajoId,
+      tecnicoId,
+      "finalizado",
+      actividadActual.id,
+    );
+
+    await evaluarTrabajoLuegoDeAccion(trabajoId);
+  };
+
   if (esUltimoActivo) {
     abrirModalConfirmacion({
       titulo: "Finalizar participación",
@@ -4547,14 +4630,7 @@ async function pedirLiberarTecnico(trabajoId, actividadId, tecnicoId) {
 `,
       boton: "Finalizar participación",
       claseBoton: "btn-principal",
-      onConfirm: async () => {
-        await liberarTecnicoDeTrabajo(
-          trabajoId,
-          tecnicoId,
-          "finalizado",
-          actividadActual.id,
-        );
-      },
+      onConfirm: ejecutarFinalizacionParticipacion,
     });
     return;
   }
@@ -4568,15 +4644,50 @@ async function pedirLiberarTecnico(trabajoId, actividadId, tecnicoId) {
 `,
     boton: "Finalizar participación",
     claseBoton: "btn-principal",
-    onConfirm: async () => {
-      await liberarTecnicoDeTrabajo(
-        trabajoId,
-        tecnicoId,
-        "finalizado",
-        actividadActual.id,
-      );
-    },
+    onConfirm: ejecutarFinalizacionParticipacion,
   });
+}
+
+async function evaluarTrabajoLuegoDeAccion(trabajoId) {
+  try {
+    const actividadesSnap = await window.db
+      .collection("actividades")
+      .where("trabajo_id", "==", Number(trabajoId))
+      .where("activo", "==", true)
+      .get();
+
+    const actividades = actividadesSnap.docs.map((doc) => doc.data() || {});
+
+    const hayEnProceso = actividades.some(
+      (a) => String(a?.estado || "").toLowerCase() === "en_proceso",
+    );
+
+    if (hayEnProceso) return;
+
+    const hayPausadas = actividades.some(
+      (a) => String(a?.estado || "").toLowerCase() === "pausado",
+    );
+
+    const pendientesSinTecnico = actividades.filter((a) => {
+      const estado = String(a?.estado || "").toLowerCase();
+
+      const participantes = Array.isArray(a?.participantes)
+        ? a.participantes
+        : [];
+
+      const tuvoParticipacion = participantes.some(
+        (p) => Number(p?.tecnico_id || 0) > 0,
+      );
+
+      return estado === "pendiente" && !tuvoParticipacion;
+    });
+
+    if (hayPausadas || pendientesSinTecnico.length > 0) {
+      await confirmarFinalizacionTrabajoCompletoConPendientes(trabajoId);
+    }
+  } catch (error) {
+    console.error("Error evaluando trabajo después de acción:", error);
+  }
 }
 
 async function pedirPausarParticipacion(trabajoId, actividadId, tecnicoId) {
@@ -4860,6 +4971,171 @@ async function liberarTecnicoDeTrabajo(
       tecnicosParticipantesCount,
     } = resumirEstadosTrabajoDesdeActividades(actividadesActualizadas);
 
+    const hayEnProcesoDespues = actividadesActualizadas.some(
+      (a) => String(a?.estado || "").toLowerCase() === "en_proceso",
+    );
+
+    const hayPausadasDespues = actividadesActualizadas.some(
+      (a) => String(a?.estado || "").toLowerCase() === "pausado",
+    );
+
+    const pendientesSinTecnicoDespues = actividadesActualizadas.filter((a) => {
+      const estado = String(a?.estado || "").toLowerCase();
+      const participantesAct = Array.isArray(a?.participantes)
+        ? a.participantes
+        : [];
+      const tuvoParticipacion = participantesAct.some(
+        (p) => Number(p?.tecnico_id || 0) > 0,
+      );
+
+      return estado === "pendiente" && !tuvoParticipacion;
+    });
+
+    const requiereDecisionAntesDeGuardar =
+      accionNormalizada === "finalizado" &&
+      !hayEnProcesoDespues &&
+      !hayPausadasDespues &&
+      pendientesSinTecnicoDespues.length > 0;
+
+    if (requiereDecisionAntesDeGuardar) {
+      const existente = document.getElementById(
+        "modalDecisionTrabajoConPendientesFinalizarParticipacion",
+      );
+      if (existente) existente.remove();
+
+      const overlay = document.createElement("div");
+      overlay.id = "modalDecisionTrabajoConPendientesFinalizarParticipacion";
+      overlay.style.position = "fixed";
+      overlay.style.inset = "0";
+      overlay.style.background = "rgba(15, 23, 42, 0.55)";
+      overlay.style.display = "flex";
+      overlay.style.alignItems = "center";
+      overlay.style.justifyContent = "center";
+      overlay.style.zIndex = "9999";
+      overlay.style.padding = "16px";
+
+      overlay.innerHTML = `
+<div style="
+  width:100%;
+  max-width:620px;
+  background:#ffffff;
+  border-radius:16px;
+  box-shadow:0 20px 50px rgba(0,0,0,0.25);
+  padding:20px;
+  max-height:90vh;
+  overflow:auto;
+">
+  <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:10px;">
+    <div style="font-size:20px; font-weight:700; color:#0f172a;">
+      Confirmar finalización del trabajo
+    </div>
+    <button id="btnCerrarDecisionParticipacionPendiente" type="button" style="padding:8px 12px; border:none; border-radius:10px; background:#e5e7eb; color:#374151; font-weight:600; cursor:pointer;">
+      Cerrar
+    </button>
+  </div>
+
+  <div style="font-size:14px; color:#475569; line-height:1.5;">
+    Este trabajo todavía tiene actividades pendientes sin técnico.
+  </div>
+
+  <div style="margin-top:12px; padding:12px; border:1px solid #d9dee7; border-radius:12px; background:#f8fafc; color:#111827; font-size:14px; line-height:1.5;">
+    <div><strong>Trabajo:</strong> ${escapeHtml(trabajo?.descripcion || "Sin descripción")}</div>
+    <div style="margin-top:12px; font-weight:700; margin-bottom:8px; color:#b42318;">
+      Actividades pendientes sin técnico
+    </div>
+    ${pendientesSinTecnicoDespues
+      .map(
+        (a, i) => `
+      <div style="margin-top:6px;">${i + 1}. ${escapeHtml(a?.descripcion || "Actividad")}</div>
+    `,
+      )
+      .join("")}
+    <div style="margin-top:14px;">
+      ¿Deseas finalizar el trabajo de todas formas o mantenerlo abierto?
+    </div>
+  </div>
+
+  <div style="display:flex; gap:10px; justify-content:flex-start; flex-wrap:wrap; margin-top:18px;">
+    <button id="btnFinalizarTodoDesdeParticipacion" type="button" style="padding:10px 14px; border:none; border-radius:10px; background:#fbe7e7; color:#b42318; font-weight:700; cursor:pointer;">
+      Finalizar de todas formas
+    </button>
+    <button id="btnMantenerAbiertoDesdeParticipacion" type="button" style="padding:10px 14px; border:none; border-radius:10px; background:#e5e7eb; color:#374151; font-weight:700; cursor:pointer;">
+      Cancelar
+    </button>
+  </div>
+</div>
+`;
+
+      const cerrar = () => {
+        overlay.remove();
+      };
+
+      overlay.addEventListener("click", (e) => {
+        if (e.target === overlay) cerrar();
+      });
+
+      document.body.appendChild(overlay);
+
+      document.getElementById(
+        "btnCerrarDecisionParticipacionPendiente",
+      ).onclick = () => cerrar();
+
+      document.getElementById("btnFinalizarTodoDesdeParticipacion").onclick =
+        async () => {
+          cerrar();
+          await finalizarTrabajoCompleto(trabajoId);
+        };
+
+      document.getElementById("btnMantenerAbiertoDesdeParticipacion").onclick =
+        async () => {
+          cerrar();
+
+          const batch = window.db.batch();
+
+          batch.update(actividadRef, actividadUpdate);
+
+          const updateTecnico = {};
+
+          if (eraActivo) {
+            updateTecnico.estado = "libre";
+            updateTecnico.trabajo_id = null;
+            updateTecnico.almuerzo_desde = null;
+            updateTecnico.almuerzo_hasta = null;
+            updateTecnico.actividad_origen_almuerzo_id = null;
+            updateTecnico.trabajo_origen_almuerzo_id = null;
+          } else if (
+            String(tecnico.estado || "").toLowerCase() === "almuerzo" &&
+            String(tecnico.actividad_origen_almuerzo_id || "").trim() ===
+              actividadId
+          ) {
+            updateTecnico.actividad_origen_almuerzo_id = null;
+            updateTecnico.trabajo_origen_almuerzo_id = null;
+          }
+
+          if (Object.keys(updateTecnico).length > 0) {
+            batch.update(tecnicoRef, updateTecnico);
+          }
+
+          batch.update(trabajoRef, {
+            estado: nuevoEstadoTrabajo,
+            ultima_actividad_at: ahoraIso,
+            finalizado_at:
+              nuevoEstadoTrabajo === "finalizado" ? ahoraIso : null,
+            total_actividades: actividadesActualizadas.length,
+            actividades_pendientes: actividadesPendientes,
+            actividades_en_proceso: actividadesEnProceso,
+            actividades_pausadas: actividadesPausadas,
+            actividades_finalizadas: actividadesFinalizadas,
+            tecnicos_activos_count: tecnicosActivosTotal,
+            tecnicos_participantes_count: tecnicosParticipantesCount,
+          });
+
+          await batch.commit();
+        };
+
+      return;
+    }
+
     const batch = window.db.batch();
 
     batch.update(actividadRef, actividadUpdate);
@@ -5028,9 +5304,10 @@ async function cerrarActividad(trabajoId, actividadId) {
 
   try {
     const trabajoRef = window.db.collection("trabajos").doc(String(trabajoId));
+    const actividadIdTexto = String(actividadId || "").trim();
     const actividadRef = window.db
       .collection("actividades")
-      .doc(String(actividadId).trim());
+      .doc(actividadIdTexto);
 
     const [trabajoSnap, actividadSnap, actividadesSnap] = await Promise.all([
       trabajoRef.get(),
@@ -5093,6 +5370,7 @@ async function cerrarActividad(trabajoId, actividadId) {
       if (!idsUltimos.includes(tecnicoId) && tecnicoId > 0) {
         idsUltimos.push(tecnicoId);
       }
+
       if (!nombresUltimos.includes(tecnicoNombre)) {
         nombresUltimos.push(tecnicoNombre);
       }
@@ -5109,6 +5387,7 @@ async function cerrarActividad(trabajoId, actividadId) {
       if (estadoActual !== "finalizado") {
         actualizado.estado = "finalizado";
       }
+
       actualizado.visible_en_tarjeta = true;
       actualizado.activo = false;
       actualizado.inicio_actual_at = null;
@@ -5153,7 +5432,7 @@ async function cerrarActividad(trabajoId, actividadId) {
 
     const actividadesActualizadas = actividadesSnap.docs.map((doc) => {
       const data = doc.data() || {};
-      if (doc.id === String(actividadId).trim()) {
+      if (doc.id === actividadIdTexto) {
         return {
           ...data,
           ...actividadUpdate,
@@ -5189,21 +5468,118 @@ async function cerrarActividad(trabajoId, actividadId) {
       (a) => String(a?.estado || "").toLowerCase() === "en_proceso",
     );
 
+    const hayPausadas = actividadesActualizadas.some(
+      (a) => String(a?.estado || "").toLowerCase() === "pausado",
+    );
+
     const pendientesSinTecnico = actividadesActualizadas.filter((a) => {
       const estado = String(a?.estado || "").toLowerCase();
-      const participantes = Array.isArray(a?.participantes)
+      const participantesAct = Array.isArray(a?.participantes)
         ? a.participantes
         : [];
-      const tuvoParticipacion = participantes.some(
+      const tuvoParticipacion = participantesAct.some(
         (p) => Number(p?.tecnico_id || 0) > 0,
       );
 
       return estado === "pendiente" && !tuvoParticipacion;
     });
 
-    if (!hayEnProceso && pendientesSinTecnico.length > 0) {
-      finalizarAccion(clave);
-      pedirFinalizarTrabajo(trabajoId);
+    if (!hayEnProceso && !hayPausadas && pendientesSinTecnico.length > 0) {
+      const decision = await new Promise((resolve) => {
+        const existente = document.getElementById(
+          "modalDecisionTrabajoConPendientes",
+        );
+        if (existente) existente.remove();
+
+        const listaHtml = pendientesSinTecnico
+          .map(
+            (a) =>
+              `<div style="margin-top:4px;">• ${escapeHtml(a?.descripcion || "Actividad")}</div>`,
+          )
+          .join("");
+
+        const overlay = document.createElement("div");
+        overlay.id = "modalDecisionTrabajoConPendientes";
+        overlay.style.position = "fixed";
+        overlay.style.inset = "0";
+        overlay.style.background = "rgba(15, 23, 42, 0.55)";
+        overlay.style.display = "flex";
+        overlay.style.alignItems = "center";
+        overlay.style.justifyContent = "center";
+        overlay.style.zIndex = "9999";
+        overlay.style.padding = "16px";
+
+        overlay.innerHTML = `
+<div style="
+  width:100%;
+  max-width:620px;
+  background:#ffffff;
+  border-radius:16px;
+  box-shadow:0 20px 50px rgba(0,0,0,0.25);
+  padding:20px;
+  max-height:90vh;
+  overflow:auto;
+">
+  <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:10px;">
+    <div style="font-size:20px; font-weight:700; color:#0f172a;">
+      Trabajo con actividades pendientes
+    </div>
+    <button id="btnCerrarDecisionTrabajoPendiente" type="button" style="padding:8px 12px; border:none; border-radius:10px; background:#e5e7eb; color:#374151; font-weight:600; cursor:pointer;">
+      Cerrar
+    </button>
+  </div>
+
+  <div style="font-size:14px; color:#475569; line-height:1.5;">
+    Aún quedan actividades pendientes sin técnico en este trabajo.
+  </div>
+
+  <div style="margin-top:12px; padding:12px; border:1px solid #d9dee7; border-radius:12px; background:#f8fafc; color:#111827; font-size:14px; line-height:1.5;">
+    ${listaHtml}
+    <div style="margin-top:12px;">
+      ¿Deseas finalizar el trabajo de todas formas o mantenerlo abierto?
+    </div>
+  </div>
+
+  <div style="display:flex; gap:10px; justify-content:flex-start; flex-wrap:wrap; margin-top:18px;">
+    <button id="btnFinalizarTrabajoConPendientes" type="button" style="padding:10px 14px; border:none; border-radius:10px; background:#fbe7e7; color:#b42318; font-weight:700; cursor:pointer;">
+      Finalizar de todas formas
+    </button>
+    <button id="btnCancelarFinalizacionTrabajoConPendientes" type="button" style="padding:10px 14px; border:none; border-radius:10px; background:#e5e7eb; color:#374151; font-weight:700; cursor:pointer;">
+      Cancelar
+    </button>
+  </div>
+</div>
+`;
+
+        const cerrar = (valor = "mantener_abierto") => {
+          overlay.remove();
+          resolve(valor);
+        };
+
+        overlay.addEventListener("click", (e) => {
+          if (e.target === overlay) cerrar("mantener_abierto");
+        });
+
+        document.body.appendChild(overlay);
+
+        document.getElementById("btnCerrarDecisionTrabajoPendiente").onclick =
+          () => cerrar("mantener_abierto");
+
+        document.getElementById(
+          "btnCancelarFinalizacionTrabajoConPendientes",
+        ).onclick = () => cerrar("mantener_abierto");
+
+        document.getElementById("btnFinalizarTrabajoConPendientes").onclick =
+          () => cerrar("finalizar");
+      });
+
+      if (decision === "finalizar") {
+        finalizarAccion(clave);
+        await finalizarTrabajoCompleto(trabajoId);
+        return;
+      }
+
+      await batch.commit();
       return;
     }
 
@@ -5775,9 +6151,347 @@ async function pedirFinalizarTrabajo(trabajoId) {
     boton: "Finalizar todo",
     claseBoton: "btn-success",
     onConfirm: async () => {
-      await finalizarTrabajoCompleto(trabajoId);
+      await confirmarFinalizacionTrabajoCompletoConPendientes(trabajoId);
     },
   });
+}
+
+async function confirmarFinalizacionTrabajoCompletoConPendientes(trabajoId) {
+  if (!validarBatuta()) return;
+
+  try {
+    const trabajoRef = window.db.collection("trabajos").doc(String(trabajoId));
+    const actividadesSnap = await window.db
+      .collection("actividades")
+      .where("trabajo_id", "==", Number(trabajoId))
+      .where("activo", "==", true)
+      .get();
+
+    if (actividadesSnap.empty) {
+      await finalizarTrabajoCompleto(trabajoId);
+      return;
+    }
+
+    const actividades = actividadesSnap.docs.map((doc) => ({
+      idDoc: doc.id,
+      ref: doc.ref,
+      ...doc.data(),
+    }));
+
+    const actividadesPausadas = actividades.filter(
+      (act) => String(act?.estado || "").toLowerCase() === "pausado",
+    );
+
+    const pendientesSinTecnico = actividades.filter((act) => {
+      const estado = String(act?.estado || "").toLowerCase();
+
+      const tecnicosActivos = Array.isArray(act?.tecnicos_activos_ids)
+        ? act.tecnicos_activos_ids
+        : [];
+
+      const participantes = Array.isArray(act?.participantes)
+        ? act.participantes
+        : [];
+
+      const tuvoParticipacion = participantes.some(
+        (p) => Number(p?.tecnico_id || 0) > 0,
+      );
+
+      return (
+        estado === "pendiente" &&
+        tecnicosActivos.length === 0 &&
+        !tuvoParticipacion
+      );
+    });
+
+    if (actividadesPausadas.length === 0 && pendientesSinTecnico.length === 0) {
+      await finalizarTrabajoCompleto(trabajoId);
+      return;
+    }
+
+    const existente = document.getElementById(
+      "modalDecisionTrabajoConPendientesFinalizarTodo",
+    );
+    if (existente) existente.remove();
+
+    const trabajo = (ultimoResumen.trabajos || []).find(
+      (t) => Number(t.id) === Number(trabajoId),
+    );
+
+    const bloquePausadas =
+      actividadesPausadas.length > 0
+        ? `
+<div style="margin-top:12px;">
+  <div style="font-weight:700; margin-bottom:8px; color:#b42318;">
+    Actividades pausadas
+  </div>
+  ${actividadesPausadas
+    .map(
+      (a, i) => `
+    <div style="margin-top:6px;">${i + 1}. ${escapeHtml(a?.descripcion || "Actividad")}</div>
+  `,
+    )
+    .join("")}
+</div>
+`
+        : "";
+
+    const bloquePendientes =
+      pendientesSinTecnico.length > 0
+        ? `
+<div style="margin-top:12px;">
+  <div style="font-weight:700; margin-bottom:8px; color:#b42318;">
+    Actividades pendientes sin técnico
+  </div>
+  ${pendientesSinTecnico
+    .map(
+      (a, i) => `
+    <div style="margin-top:6px;">${i + 1}. ${escapeHtml(a?.descripcion || "Actividad")}</div>
+  `,
+    )
+    .join("")}
+</div>
+`
+        : "";
+
+    const overlay = document.createElement("div");
+    overlay.id = "modalDecisionTrabajoConPendientesFinalizarTodo";
+    overlay.style.position = "fixed";
+    overlay.style.inset = "0";
+    overlay.style.background = "rgba(15, 23, 42, 0.55)";
+    overlay.style.display = "flex";
+    overlay.style.alignItems = "center";
+    overlay.style.justifyContent = "center";
+    overlay.style.zIndex = "9999";
+    overlay.style.padding = "16px";
+
+    overlay.innerHTML = `
+<div style="
+  width:100%;
+  max-width:620px;
+  background:#ffffff;
+  border-radius:16px;
+  box-shadow:0 20px 50px rgba(0,0,0,0.25);
+  padding:20px;
+  max-height:90vh;
+  overflow:auto;
+">
+  <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:10px;">
+    <div style="font-size:20px; font-weight:700; color:#0f172a;">
+      Confirmar finalización del trabajo
+    </div>
+    <button id="btnCerrarDecisionFinalizarTodo" type="button" style="padding:8px 12px; border:none; border-radius:10px; background:#e5e7eb; color:#374151; font-weight:600; cursor:pointer;">
+      Cerrar
+    </button>
+  </div>
+
+  <div style="font-size:14px; color:#475569; line-height:1.5;">
+    Este trabajo todavía tiene actividades con detalles pendientes.
+  </div>
+
+  <div style="margin-top:12px; padding:12px; border:1px solid #d9dee7; border-radius:12px; background:#f8fafc; color:#111827; font-size:14px; line-height:1.5;">
+    <div><strong>Trabajo:</strong> ${escapeHtml(trabajo?.descripcion || "Sin descripción")}</div>
+    ${bloquePausadas}
+    ${bloquePendientes}
+    <div style="margin-top:14px;">
+      ¿Deseas finalizar el trabajo de todas formas o mantenerlo abierto?
+    </div>
+  </div>
+
+  <div style="display:flex; gap:10px; justify-content:flex-start; flex-wrap:wrap; margin-top:18px;">
+    <button id="btnFinalizarTodoConPendientes" type="button" style="padding:10px 14px; border:none; border-radius:10px; background:#fbe7e7; color:#b42318; font-weight:700; cursor:pointer;">
+      Finalizar de todas formas
+    </button>
+    <button id="btnCancelarFinalizarTodoConPendientes" type="button" style="padding:10px 14px; border:none; border-radius:10px; background:#e5e7eb; color:#374151; font-weight:700; cursor:pointer;">
+      Cancelar
+    </button>
+  </div>
+</div>
+`;
+
+    const cerrar = () => {
+      overlay.remove();
+    };
+
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) cerrar();
+    });
+
+    document.body.appendChild(overlay);
+
+    document.getElementById("btnCerrarDecisionFinalizarTodo").onclick = () =>
+      cerrar();
+
+    document.getElementById("btnFinalizarTodoConPendientes").onclick =
+      async () => {
+        cerrar();
+        await finalizarTrabajoCompleto(trabajoId);
+      };
+
+    document.getElementById("btnCancelarFinalizarTodoConPendientes").onclick =
+      async () => {
+        cerrar();
+
+        const clave = `resolver-finalizacion-parcial-${trabajoId}`;
+        if (!iniciarAccion(clave)) return;
+
+        try {
+          const ahoraIso = new Date().toISOString();
+          const batch = window.db.batch();
+
+          const actividadesActualizadas = [];
+
+          for (const act of actividades) {
+            const estado = String(act?.estado || "").toLowerCase();
+
+            const participantes = Array.isArray(act?.participantes)
+              ? [...act.participantes]
+              : [];
+
+            const idsParticipantes = new Set(
+              (Array.isArray(act?.tecnicos_participantes_ids)
+                ? act.tecnicos_participantes_ids
+                : []
+              ).map((id) => Number(id)),
+            );
+
+            const idsUltimos = Array.isArray(act?.ultimo_tecnicos_ids)
+              ? [...act.ultimo_tecnicos_ids]
+              : [];
+            const nombresUltimos = Array.isArray(act?.ultimo_tecnicos_nombres)
+              ? [...act.ultimo_tecnicos_nombres]
+              : [];
+
+            if (estado === "en_proceso") {
+              const participantesActualizados = participantes.map((p) => {
+                const actualizado = { ...p };
+                const tecnicoId = Number(actualizado?.tecnico_id || 0);
+                const tecnicoNombre = actualizado?.tecnico_nombre || "Técnico";
+                const estadoParticipante = String(
+                  actualizado?.estado || "",
+                ).toLowerCase();
+                const estabaActivo =
+                  actualizado?.activo !== false &&
+                  estadoParticipante === "activo";
+
+                if (tecnicoId > 0) {
+                  idsParticipantes.add(tecnicoId);
+                  if (!idsUltimos.includes(tecnicoId))
+                    idsUltimos.push(tecnicoId);
+                }
+
+                if (tecnicoNombre && !nombresUltimos.includes(tecnicoNombre)) {
+                  nombresUltimos.push(tecnicoNombre);
+                }
+
+                if (estabaActivo && actualizado.inicio_actual_at) {
+                  const inicio = new Date(actualizado.inicio_actual_at);
+                  if (!isNaN(inicio.getTime())) {
+                    const extra = Math.max(
+                      0,
+                      Math.floor((new Date() - inicio) / 1000),
+                    );
+                    actualizado.tiempo_real_seg =
+                      Number(actualizado.tiempo_real_seg || 0) + extra;
+                  }
+                }
+
+                actualizado.visible_en_tarjeta = true;
+                actualizado.estado = "finalizado";
+                actualizado.activo = false;
+                actualizado.inicio_actual_at = null;
+                actualizado.pausa_actual_at = null;
+                actualizado.finalizado_at = ahoraIso;
+
+                if (estabaActivo && tecnicoId > 0) {
+                  const tecnicoRef = window.db
+                    .collection("tecnicos")
+                    .doc(String(tecnicoId));
+
+                  batch.update(tecnicoRef, {
+                    estado: "libre",
+                    trabajo_id: null,
+                    almuerzo_desde: null,
+                    almuerzo_hasta: null,
+                    actividad_origen_almuerzo_id: null,
+                    trabajo_origen_almuerzo_id: null,
+                  });
+                }
+
+                return actualizado;
+              });
+
+              const actividadUpdate = {
+                participantes: participantesActualizados,
+                estado: "finalizado",
+                ultima_actividad_at: ahoraIso,
+                finalizado_at: ahoraIso,
+                ultima_reanudacion_at: null,
+                ultima_pausa_at: null,
+                inicio_tramo_activo_at: null,
+                inicio_tramo_pausa_at: null,
+                tecnicos_activos_ids: [],
+                tecnicos_activos_nombres: [],
+                tecnicos_activos_count: 0,
+                tecnicos_participantes_ids: Array.from(idsParticipantes),
+                tecnicos_participantes_count: idsParticipantes.size,
+                ultimo_tecnicos_ids: idsUltimos.filter((id) => Number(id) > 0),
+                ultimo_tecnicos_nombres: nombresUltimos,
+              };
+
+              batch.update(act.ref, actividadUpdate);
+              actividadesActualizadas.push({
+                ...act,
+                ...actividadUpdate,
+              });
+              continue;
+            }
+
+            actividadesActualizadas.push({ ...act });
+          }
+
+          const {
+            nuevoEstadoTrabajo,
+            actividadesPendientes,
+            actividadesEnProceso,
+            actividadesPausadas,
+            actividadesFinalizadas,
+            tecnicosActivosTotal,
+            tecnicosParticipantesCount,
+          } = resumirEstadosTrabajoDesdeActividades(actividadesActualizadas);
+
+          batch.update(trabajoRef, {
+            estado: nuevoEstadoTrabajo,
+            ultima_actividad_at: ahoraIso,
+            finalizado_at:
+              nuevoEstadoTrabajo === "finalizado" ? ahoraIso : null,
+            total_actividades: actividadesActualizadas.length,
+            actividades_pendientes: actividadesPendientes,
+            actividades_en_proceso: actividadesEnProceso,
+            actividades_pausadas: actividadesPausadas,
+            actividades_finalizadas: actividadesFinalizadas,
+            tecnicos_activos_count: tecnicosActivosTotal,
+            tecnicos_participantes_count: tecnicosParticipantesCount,
+          });
+
+          await batch.commit();
+        } catch (error) {
+          console.error(
+            "Error resolviendo finalización parcial del trabajo:",
+            error,
+          );
+          alert("No se pudo actualizar el trabajo.");
+        } finally {
+          finalizarAccion(clave);
+        }
+      };
+  } catch (error) {
+    console.error(
+      "Error validando pendientes antes de finalizar trabajo completo:",
+      error,
+    );
+    alert("No se pudo validar el estado del trabajo antes de finalizar.");
+  }
 }
 
 async function finalizarTrabajoCompleto(trabajoId) {
@@ -5968,15 +6682,28 @@ function abrirModalConfirmacion({
   boton,
   claseBoton,
   onConfirm,
+  onCancel = null,
+  botonSecundario = "Cancelar",
 }) {
   accionPendiente = onConfirm;
+  accionCancelPendiente = onCancel;
+
   document.getElementById("confirmacionTitulo").textContent =
     titulo || "Confirmar acción";
   document.getElementById("confirmacionTexto").textContent = texto || "";
   document.getElementById("confirmacionDestacado").innerHTML = destacado || "";
-  const btn = document.getElementById("confirmacionBtnPrincipal");
-  btn.textContent = boton || "Confirmar";
-  btn.className = claseBoton || "btn-danger";
+
+  const btnPrincipal = document.getElementById("confirmacionBtnPrincipal");
+  btnPrincipal.textContent = boton || "Confirmar";
+  btnPrincipal.className = claseBoton || "btn-danger";
+
+  const btnCancelar = document.querySelector(
+    "#modalConfirmacionAccion .btn-secundario",
+  );
+  if (btnCancelar) {
+    btnCancelar.textContent = botonSecundario || "Cancelar";
+  }
+
   document.getElementById("modalConfirmacionAccion").style.display = "block";
 }
 function toggleFinalizados() {
