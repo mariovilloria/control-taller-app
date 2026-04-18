@@ -21,7 +21,7 @@
     <h2>Productividad por técnico</h2>
 
     <div class="filtros-reportes">
-      <div class="filtro-item">
+      <div class="filtro-item" style="display: none">
         <label for="filtroTecnico">Técnico</label><br />
         <select
           id="filtroTecnico"
@@ -72,7 +72,8 @@
       </div>
     </div>
     <div id="resumen-general-reportes" class="resumen-general-reportes"></div>
-    <div id="tabla-productividad"></div>
+    <div id="ranking-tecnicos-reportes"></div>
+    <div id="tabla-productividad" style="display: none"></div>
     <div id="detalle-tecnico" class="detalle-tecnico"></div>
 
     <hr style="margin: 28px 0 20px 0" />
@@ -119,7 +120,7 @@
         columna: "tiempo",
         direccion: "desc",
       };
-
+      let tecnicoSeleccionadoTarjeta = "";
       function tiempoTextoASegundos(texto) {
         if (!texto) return 0;
 
@@ -222,34 +223,6 @@
       `;
           })
           .join("");
-      }
-
-      function ordenarYRenderizarDetalle(columna) {
-        if (
-          !Array.isArray(ultimoDetalleTecnico) ||
-          !ultimoDetalleTecnico.length
-        ) {
-          return;
-        }
-
-        if (ordenActualDetalle.columna === columna) {
-          ordenActualDetalle.direccion =
-            ordenActualDetalle.direccion === "asc" ? "desc" : "asc";
-        } else {
-          ordenActualDetalle.columna = columna;
-          ordenActualDetalle.direccion = "asc";
-        }
-
-        ultimoDetalleTecnico.sort((a, b) =>
-          compararValoresDetalle(
-            a,
-            b,
-            ordenActualDetalle.columna,
-            ordenActualDetalle.direccion,
-          ),
-        );
-
-        renderizarTablaDetalleTecnico();
       }
 
       function obtenerFechasEntre(desde, hasta) {
@@ -371,7 +344,99 @@
           ? tr.solicitante_nombre || tr.responsable_nombre || ""
           : tr.vendedor_nombre || tr.responsable_nombre || "";
       }
+      function renderRankingTecnicos() {
+        const cont = document.getElementById("ranking-tecnicos-reportes");
+        if (!cont) return;
 
+        const datos = Object.entries(ultimaProductividadCalculada || {})
+          .map(([nombre, data]) => {
+            return {
+              nombre,
+              actividades: data.actividades || 0,
+              tiempo: data.tiempo || 0,
+              promedio:
+                data.actividades > 0 ? data.tiempo / data.actividades : 0,
+            };
+          })
+          .filter((t) => t.actividades > 0);
+
+        if (!datos.length) {
+          cont.innerHTML = "";
+          return;
+        }
+
+        // Ordenar por tiempo DESC
+        datos.sort((a, b) => {
+          // 1️⃣ Primero por actividades (DESC)
+          if (b.actividades !== a.actividades) {
+            return b.actividades - a.actividades;
+          }
+
+          // 2️⃣ Luego por tiempo (DESC) como desempate
+          return b.tiempo - a.tiempo;
+        });
+
+        const top = datos;
+
+        cont.innerHTML = `
+  <div class="ranking-reportes">
+    <div class="ranking-titulo">Top técnicos por actividades</div>
+
+    <div class="ranking-grid">
+      ${top
+        .map(
+          (t, i) => `
+<div
+  class="ranking-card ${
+    !tecnicoSeleccionadoTarjeta || tecnicoSeleccionadoTarjeta === t.nombre
+      ? "ranking-card-activa"
+      : "ranking-card-inactiva"
+  }"
+  onclick="toggleFiltroTecnicoTarjeta('${String(t.nombre || "").replace(/'/g, "\\'")}')"
+>
+          <div class="ranking-pos ${i === 0 ? "ranking-pos-top" : "ranking-pos-small"}">
+  #${i + 1}
+</div>
+
+          <div class="ranking-nombre">${t.nombre}</div>
+
+          <div class="ranking-stats">
+            <div>
+              <span class="ranking-label">Tiempo</span>
+              <span class="ranking-value">${formatearMinutos(t.tiempo)}</span>
+            </div>
+            <div>
+              <span class="ranking-label">Act.</span>
+              <span class="ranking-value">${t.actividades}</span>
+            </div>
+            <div>
+              <span class="ranking-label">Prom.</span>
+              <span class="ranking-value">${formatearMinutos(t.promedio)}</span>
+            </div>
+          </div>
+        </div>
+      `,
+        )
+        .join("")}
+    </div>
+  </div>
+`;
+      }
+
+      function toggleFiltroTecnicoTarjeta(nombreTecnico) {
+        const filtroTecnico = document.getElementById("filtroTecnico");
+        if (!filtroTecnico) return;
+
+        if (tecnicoSeleccionadoTarjeta === nombreTecnico) {
+          tecnicoSeleccionadoTarjeta = "";
+          filtroTecnico.value = "";
+        } else {
+          tecnicoSeleccionadoTarjeta = nombreTecnico;
+          filtroTecnico.value = nombreTecnico;
+        }
+
+        recalcularProductividadDesdeMemoria();
+      }
       function parseFechaSegura(fechaIso) {
         if (!fechaIso) return null;
 
@@ -630,9 +695,17 @@
         recalcularProductividadDesdeMemoria();
       }
 
-      function limpiarReporteTrabajo() {
-        document.getElementById("filtroTrabajoId").value = "";
-        document.getElementById("reporte-trabajo").innerHTML = "";
+      async function limpiarReporteTrabajo() {
+        const input = document.getElementById("filtroTrabajoId");
+        const cont = document.getElementById("reporte-trabajo");
+
+        if (input) input.value = "";
+        if (cont) cont.innerHTML = "";
+
+        tecnicoSeleccionadoTarjeta = "";
+        ultimaProductividadCalculada = {};
+
+        await cargarProductividad();
       }
 
       function limpiarReporteTrabajoSilencioso() {
@@ -656,18 +729,30 @@
         const cont = document.getElementById("reporte-trabajo");
 
         if (!desdeDetalle) {
-          document.getElementById("filtroTecnico").value = "";
-          document.getElementById("filtroTipoResponsable").value = "";
-          document.getElementById("filtroResponsable").value = "";
-          document.getElementById("filtroFechaDesde").value = "";
-          document.getElementById("filtroFechaHasta").value = "";
-
+          const filtroTecnico = document.getElementById("filtroTecnico");
+          const filtroTipoResponsable = document.getElementById(
+            "filtroTipoResponsable",
+          );
+          const filtroResponsable =
+            document.getElementById("filtroResponsable");
+          const filtroFechaDesde = document.getElementById("filtroFechaDesde");
+          const filtroFechaHasta = document.getElementById("filtroFechaHasta");
           const inputRango = document.getElementById("filtroFechaRango");
+
+          if (filtroTecnico) filtroTecnico.value = "";
+          if (filtroTipoResponsable) filtroTipoResponsable.value = "";
+          if (filtroResponsable) filtroResponsable.value = "";
+          if (filtroFechaDesde) filtroFechaDesde.value = "";
+          if (filtroFechaHasta) filtroFechaHasta.value = "";
           if (inputRango) inputRango.value = "";
 
           if (typeof pickerFechaRango !== "undefined" && pickerFechaRango) {
             pickerFechaRango.clear();
           }
+
+          tecnicoSeleccionadoTarjeta = "";
+          fechaActualCache = null;
+          ultimaProductividadCalculada = {};
 
           limpiarDetalleTecnico();
 
@@ -677,9 +762,13 @@
           const tablaProductividad = document.getElementById(
             "tabla-productividad",
           );
+          const rankingTecnicos = document.getElementById(
+            "ranking-tecnicos-reportes",
+          );
 
           if (resumenGeneral) resumenGeneral.innerHTML = "";
           if (tablaProductividad) tablaProductividad.innerHTML = "";
+          if (rankingTecnicos) rankingTecnicos.innerHTML = "";
         }
 
         const trabajos = obtenerResumenActual().trabajos || [];
@@ -712,7 +801,6 @@
           cont.innerHTML = `<p>No se pudo buscar el trabajo ${trabajoId}.</p>`;
         }
       }
-
       function abrirDesdeDetalleTrabajo(trabajoId) {
         const input = document.getElementById("filtroTrabajoId");
         if (!input) return;
@@ -743,16 +831,25 @@
         const resumenTecnicos = {};
         let totalTrabajo = 0;
 
+        let fechaTrabajoTexto = "Sin fecha";
+        if (trabajo.created_at) {
+          const fechaTrabajo = new Date(trabajo.created_at);
+          if (!isNaN(fechaTrabajo.getTime())) {
+            fechaTrabajoTexto = fechaTrabajo.toLocaleDateString("es-EC");
+          }
+        }
+
         let html = `
-      <h3>Trabajo #${trabajo.id}</h3>
-      <p><strong>Descripción:</strong> ${trabajo.descripcion || ""}</p>
-      <table class="tabla-reportes">
-        <tr>
-          <th>Actividad</th>
-          <th>Técnico</th>
-          <th>Tiempo</th>
-        </tr>
-    `;
+  <h3>Trabajo #${trabajo.id}</h3>
+  <p><strong>Fecha:</strong> ${fechaTrabajoTexto}</p>
+  <p><strong>Descripción:</strong> ${trabajo.descripcion || ""}</p>
+  <table class="tabla-reportes">
+    <tr>
+      <th>Actividad</th>
+      <th>Técnico</th>
+      <th>Tiempo</th>
+    </tr>
+`;
 
         actividades.forEach((act) => {
           const activos = Array.isArray(act.tecnicos) ? act.tecnicos : [];
@@ -1207,6 +1304,7 @@
         } else {
           document.getElementById("detalle-tecnico").innerHTML = "";
         }
+        renderRankingTecnicos();
       }
       function limpiarFiltrosReportes() {
         document.getElementById("filtroTecnico").value = "";
@@ -1254,6 +1352,9 @@
 
         let trabajosTotales = 0;
         let actividadesTotales = 0;
+        let tiempoTotalMin = 0;
+
+        const tecnicosInvolucrados = new Set();
 
         trabajos.forEach((tr) => {
           if (!tr) return;
@@ -1276,7 +1377,6 @@
           const actividades = Array.isArray(tr.actividades)
             ? tr.actividades
             : [];
-
           let trabajoCuenta = false;
 
           actividades.forEach((act) => {
@@ -1287,11 +1387,10 @@
 
             let actividadCuenta = false;
 
-            historial.forEach((tec) => {
+            [...historial, ...activos].forEach((tec) => {
               if (!tec?.nombre) return;
-              if (filtros.tecnico && tec.nombre !== filtros.tecnico) return;
 
-              const inicioHistorial =
+              const inicio =
                 tec.asignado_at ||
                 tec.iniciado_at ||
                 tec.inicio_at ||
@@ -1299,44 +1398,28 @@
                 act.created_at ||
                 act.finalizado_at;
 
-              const finHistorial =
+              const fin =
                 tec.finalizado_at ||
                 tec.pausado_at ||
                 act.finalizado_at ||
-                inicioHistorial;
+                inicio;
 
-              if (!actividadCruzaRango(inicioHistorial, finHistorial)) return;
+              if (!actividadCruzaRango(inicio, fin)) {
+                return;
+              }
 
+              if (filtros.tecnico && tec.nombre !== filtros.tecnico) {
+                return;
+              }
+
+              tecnicosInvolucrados.add(tec.nombre);
+              tiempoTotalMin += Number(tec.tiempo_acumulado_seg || 0) / 60;
               actividadCuenta = true;
-            });
-
-            activos.forEach((tec) => {
-              if (!tec?.nombre) return;
-              if (filtros.tecnico && tec.nombre !== filtros.tecnico) return;
-
-              const inicioActivo =
-                tec.asignado_at ||
-                act.inicio_proceso_at ||
-                act.created_at ||
-                act.finalizado_at;
-
-              const finActivo =
-                tec.estado_en_trabajo === "trabajando"
-                  ? new Date().toISOString()
-                  : tec.liberado_at ||
-                    tec.pausado_at ||
-                    tec.finalizado_at ||
-                    act.finalizado_at ||
-                    inicioActivo;
-
-              if (!actividadCruzaRango(inicioActivo, finActivo)) return;
-
-              actividadCuenta = true;
+              trabajoCuenta = true;
             });
 
             if (actividadCuenta) {
               actividadesTotales += 1;
-              trabajoCuenta = true;
             }
           });
 
@@ -1345,20 +1428,36 @@
           }
         });
 
+        tiempoTotalMin = redondearMinutos(tiempoTotalMin);
+
         cont.innerHTML = `
-      <div class="tabla-reportes" style="margin-bottom: 16px;">
-        <table class="tabla-reportes">
-          <tr>
-            <th>Trabajos totales</th>
-            <th>Actividades totales</th>
-          </tr>
-          <tr>
-            <td>${trabajosTotales}</td>
-            <td>${actividadesTotales}</td>
-          </tr>
-        </table>
+    <div class="cards-resumen-reportes">
+      <div class="card-resumen-reporte">
+        <div class="card-resumen-label">Trabajos</div>
+        <div class="card-resumen-valor">${trabajosTotales}</div>
       </div>
-    `;
+
+      <div class="card-resumen-reporte">
+        <div class="card-resumen-label">Actividades</div>
+        <div class="card-resumen-valor">${actividadesTotales}</div>
+      </div>
+<div class="card-resumen-reporte">
+  <div class="card-resumen-label">Promedio por actividad</div>
+  <div class="card-resumen-valor">
+    ${
+      actividadesTotales > 0
+        ? formatearMinutos(tiempoTotalMin / actividadesTotales)
+        : "0m"
+    }
+  </div>
+</div>
+
+      <div class="card-resumen-reporte">
+        <div class="card-resumen-label">Tiempo trabajado</div>
+        <div class="card-resumen-valor">${formatearMinutos(tiempoTotalMin)}</div>
+      </div>
+    </div>
+  `;
       }
 
       function renderTabla(data) {
