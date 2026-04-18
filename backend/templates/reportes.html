@@ -114,6 +114,245 @@
       let cacheReportes = {};
       let fechaActualCache = null;
       let ultimaProductividadCalculada = {};
+      let ultimoDetalleTecnico = [];
+      let ordenActualDetalle = {
+        columna: "tiempo",
+        direccion: "desc",
+      };
+
+      function tiempoTextoASegundos(texto) {
+        if (!texto) return 0;
+
+        const matchHoras = String(texto).match(/(\d+)h/);
+        const matchMinutos = String(texto).match(/(\d+)m/);
+
+        const horas = matchHoras ? Number(matchHoras[1]) : 0;
+        const minutos = matchMinutos ? Number(matchMinutos[1]) : 0;
+
+        return horas * 3600 + minutos * 60;
+      }
+
+      function compararValoresDetalle(a, b, columna, direccion) {
+        let valorA;
+        let valorB;
+
+        switch (columna) {
+          case "trabajo":
+            valorA = Number(a.trabajo || 0);
+            valorB = Number(b.trabajo || 0);
+            break;
+
+          case "fecha":
+            valorA = String(a.fecha_iso || "");
+            valorB = String(b.fecha_iso || "");
+            break;
+
+          case "tiempo":
+            valorA = Number(a.tiempo_seg || 0);
+            valorB = Number(b.tiempo_seg || 0);
+            break;
+
+          default:
+            valorA = String(a[columna] || "").toLowerCase();
+            valorB = String(b[columna] || "").toLowerCase();
+            break;
+        }
+
+        if (valorA < valorB) return direccion === "asc" ? -1 : 1;
+        if (valorA > valorB) return direccion === "asc" ? 1 : -1;
+        return 0;
+      }
+
+      function ordenarYRenderizarDetalle(columna) {
+        if (
+          !Array.isArray(ultimoDetalleTecnico) ||
+          !ultimoDetalleTecnico.length
+        )
+          return;
+
+        if (ordenActualDetalle.columna === columna) {
+          ordenActualDetalle.direccion =
+            ordenActualDetalle.direccion === "asc" ? "desc" : "asc";
+        } else {
+          ordenActualDetalle.columna = columna;
+          ordenActualDetalle.direccion = "asc";
+        }
+
+        ultimoDetalleTecnico.sort((a, b) =>
+          compararValoresDetalle(
+            a,
+            b,
+            ordenActualDetalle.columna,
+            ordenActualDetalle.direccion,
+          ),
+        );
+
+        renderizarTablaDetalleTecnico();
+      }
+
+      function renderizarTablaDetalleTecnico() {
+        const tbody = document.getElementById("tablaDetalleTecnicoBody");
+        if (!tbody) return;
+
+        tbody.innerHTML = ultimoDetalleTecnico
+          .map((item) => {
+            const trabajoIdSeguro = String(item.trabajoId || "").replace(
+              /'/g,
+              "\\'",
+            );
+            const claseInterna =
+              String(item.origen || "").toLowerCase() === "interno"
+                ? "fila-interna"
+                : "";
+
+            return `
+        <tr
+          class="fila-seleccionable ${claseInterna}"
+          ${item.trabajoId ? `onclick="abrirDesdeDetalleTrabajo('${trabajoIdSeguro}')"` : ""}
+        >
+          <td>${item.trabajo || ""}</td>
+          <td>${item.origen || ""}</td>
+          <td>${item.responsable || ""}</td>
+          <td>${item.detalle || ""}</td>
+          <td>${item.actividad || ""}</td>
+          <td>${item.fecha || ""}</td>
+          <td>${item.tiempo || ""}</td>
+          <td>${item.estado || ""}</td>
+        </tr>
+      `;
+          })
+          .join("");
+      }
+
+      function ordenarYRenderizarDetalle(columna) {
+        if (
+          !Array.isArray(ultimoDetalleTecnico) ||
+          !ultimoDetalleTecnico.length
+        ) {
+          return;
+        }
+
+        if (ordenActualDetalle.columna === columna) {
+          ordenActualDetalle.direccion =
+            ordenActualDetalle.direccion === "asc" ? "desc" : "asc";
+        } else {
+          ordenActualDetalle.columna = columna;
+          ordenActualDetalle.direccion = "asc";
+        }
+
+        ultimoDetalleTecnico.sort((a, b) =>
+          compararValoresDetalle(
+            a,
+            b,
+            ordenActualDetalle.columna,
+            ordenActualDetalle.direccion,
+          ),
+        );
+
+        renderizarTablaDetalleTecnico();
+      }
+
+      function obtenerFechasEntre(desde, hasta) {
+        if (!desde) return [];
+
+        const fechaInicio = new Date(`${desde}T00:00:00`);
+        const fechaFin = new Date(`${hasta || desde}T00:00:00`);
+
+        if (isNaN(fechaInicio.getTime()) || isNaN(fechaFin.getTime()))
+          return [];
+
+        const inicio = fechaInicio <= fechaFin ? fechaInicio : fechaFin;
+        const fin = fechaInicio <= fechaFin ? fechaFin : fechaInicio;
+
+        const fechas = [];
+        const cursor = new Date(inicio);
+
+        while (cursor <= fin) {
+          const yyyy = cursor.getFullYear();
+          const mm = String(cursor.getMonth() + 1).padStart(2, "0");
+          const dd = String(cursor.getDate()).padStart(2, "0");
+          fechas.push(`${yyyy}-${mm}-${dd}`);
+          cursor.setDate(cursor.getDate() + 1);
+        }
+
+        return fechas;
+      }
+
+      function combinarResumenesPorFechas(fechas) {
+        const combinados = {
+          tecnicos: [],
+          trabajos: [],
+        };
+
+        const tecnicosMap = new Map();
+        const trabajosMap = new Map();
+
+        fechas.forEach((fecha) => {
+          const resumen = cacheReportes[fecha];
+          if (!resumen) return;
+
+          const tecnicos = Array.isArray(resumen.tecnicos)
+            ? resumen.tecnicos
+            : [];
+          const trabajos = Array.isArray(resumen.trabajos)
+            ? resumen.trabajos
+            : [];
+
+          tecnicos.forEach((tec) => {
+            const clave = String(tec?.nombre || "").trim();
+            if (!clave) return;
+            if (!tecnicosMap.has(clave)) {
+              tecnicosMap.set(clave, tec);
+            }
+          });
+
+          trabajos.forEach((tr) => {
+            const clave = String(tr?.id || "").trim();
+            if (!clave) return;
+            if (!trabajosMap.has(clave)) {
+              trabajosMap.set(clave, tr);
+            }
+          });
+        });
+
+        combinados.tecnicos = Array.from(tecnicosMap.values());
+        combinados.trabajos = Array.from(trabajosMap.values());
+
+        return combinados;
+      }
+
+      const CACHE_REPORTES_KEY = "control_taller_cache_reportes_v1";
+
+      function cargarCachePersistenteReportes() {
+        try {
+          const bruto = sessionStorage.getItem(CACHE_REPORTES_KEY);
+          if (!bruto) return {};
+
+          const data = JSON.parse(bruto);
+          if (!data || typeof data !== "object") return {};
+
+          return data;
+        } catch (error) {
+          console.error("Error leyendo cache persistente de reportes:", error);
+          return {};
+        }
+      }
+
+      function guardarCachePersistenteReportes() {
+        try {
+          sessionStorage.setItem(
+            CACHE_REPORTES_KEY,
+            JSON.stringify(cacheReportes),
+          );
+        } catch (error) {
+          console.error(
+            "Error guardando cache persistente de reportes:",
+            error,
+          );
+        }
+      }
+
+      cacheReportes = cargarCachePersistenteReportes();
 
       function obtenerFiltrosReportes() {
         return {
@@ -377,11 +616,15 @@
             tecnicos: data.tecnicos || [],
             trabajos: data.trabajos || [],
           };
+
+          guardarCachePersistenteReportes();
         }
 
+        fechaActualCache = fechaHoy;
+
         llenarFiltros(
-          cacheReportes[fechaHoy].tecnicos,
-          cacheReportes[fechaHoy].trabajos,
+          cacheReportes[fechaHoy].tecnicos || [],
+          cacheReportes[fechaHoy].trabajos || [],
         );
 
         recalcularProductividadDesdeMemoria();
@@ -400,7 +643,7 @@
         if (cont) cont.innerHTML = "";
       }
 
-      async function buscarReporteTrabajo() {
+      async function buscarReporteTrabajo(desdeDetalle = false) {
         const input = document.getElementById("filtroTrabajoId");
         if (!input) return;
 
@@ -411,6 +654,34 @@
         }
 
         const cont = document.getElementById("reporte-trabajo");
+
+        if (!desdeDetalle) {
+          document.getElementById("filtroTecnico").value = "";
+          document.getElementById("filtroTipoResponsable").value = "";
+          document.getElementById("filtroResponsable").value = "";
+          document.getElementById("filtroFechaDesde").value = "";
+          document.getElementById("filtroFechaHasta").value = "";
+
+          const inputRango = document.getElementById("filtroFechaRango");
+          if (inputRango) inputRango.value = "";
+
+          if (typeof pickerFechaRango !== "undefined" && pickerFechaRango) {
+            pickerFechaRango.clear();
+          }
+
+          limpiarDetalleTecnico();
+
+          const resumenGeneral = document.getElementById(
+            "resumen-general-reportes",
+          );
+          const tablaProductividad = document.getElementById(
+            "tabla-productividad",
+          );
+
+          if (resumenGeneral) resumenGeneral.innerHTML = "";
+          if (tablaProductividad) tablaProductividad.innerHTML = "";
+        }
+
         const trabajos = obtenerResumenActual().trabajos || [];
 
         const trabajoEnMemoria = trabajos.find(
@@ -448,9 +719,8 @@
 
         input.value = trabajoId;
 
-        buscarReporteTrabajo();
+        buscarReporteTrabajo(true);
 
-        // opcional: hacer scroll hacia el reporte
         const cont = document.getElementById("reporte-trabajo");
         if (cont) {
           cont.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -697,31 +967,46 @@
         cont.innerHTML = html;
       }
       async function cargarResumenPorFecha() {
-        const desde = document.getElementById("filtroFechaDesde")?.value;
+        const desde = document.getElementById("filtroFechaDesde")?.value || "";
+        const hasta = document.getElementById("filtroFechaHasta")?.value || "";
 
         if (!desde) return;
 
-        // 🔥 SI YA ESTÁ EN CACHE → NO CONSULTA FIRESTORE
-        if (cacheReportes[desde]) {
-          fechaActualCache = desde;
-          recalcularProductividadDesdeMemoria();
+        const fechasRango = obtenerFechasEntre(desde, hasta || desde);
+        if (!fechasRango.length) return;
+
+        const MAX_DIAS_REPORTE = 15;
+
+        if (fechasRango.length > MAX_DIAS_REPORTE) {
+          alert(
+            `El rango máximo permitido es de ${MAX_DIAS_REPORTE} días para mantener rapidez y bajo consumo.`,
+          );
           return;
         }
 
-        // 🔴 SI NO → CONSULTA
-        const res = await fetch(`/api/resumen?fecha=${desde}`);
-        const data = await res.json();
+        for (const fecha of fechasRango) {
+          if (!cacheReportes[fecha]) {
+            const res = await fetch(`/api/resumen?fecha=${fecha}`);
+            const data = await res.json();
 
-        cacheReportes[desde] = {
-          tecnicos: data.tecnicos || [],
-          trabajos: data.trabajos || [],
-        };
+            cacheReportes[fecha] = {
+              tecnicos: data.tecnicos || [],
+              trabajos: data.trabajos || [],
+            };
+          }
+        }
 
-        fechaActualCache = desde;
+        guardarCachePersistenteReportes();
+
+        const resumenCombinado = combinarResumenesPorFechas(fechasRango);
+        const claveRango = `__rango__${fechasRango[0]}__${fechasRango[fechasRango.length - 1]}`;
+
+        cacheReportes[claveRango] = resumenCombinado;
+        fechaActualCache = claveRango;
 
         llenarFiltros(
-          cacheReportes[desde].tecnicos,
-          cacheReportes[desde].trabajos,
+          resumenCombinado.tecnicos || [],
+          resumenCombinado.trabajos || [],
         );
 
         recalcularProductividadDesdeMemoria();
@@ -1238,56 +1523,81 @@
           !Array.isArray(tecnico.detalles) ||
           tecnico.detalles.length === 0
         ) {
+          ultimoDetalleTecnico = [];
           cont.innerHTML = `
-              <h3>Detalle de ${nombreTecnico}</h3>
-              <p>No hay actividades registradas con los filtros seleccionados.</p>
-            `;
+      <h3>Detalle de ${nombreTecnico}</h3>
+      <p>No hay actividades registradas con los filtros seleccionados.</p>
+    `;
           return;
         }
 
-        const filas = tecnico.detalles
-          .map((detalle) => {
-            const trabajoIdSeguro = String(detalle.trabajoId || "").replace(
-              /'/g,
-              "\\'",
-            );
+        ordenActualDetalle = {
+          columna: "tiempo",
+          direccion: "desc",
+        };
 
-            return `
-        <tr
-          class="fila-seleccionable ${(detalle.origen || "").toLowerCase() === "interno" ? "fila-interna" : ""}"
-          ${detalle.trabajoId ? `onclick="abrirDesdeDetalleTrabajo('${trabajoIdSeguro}')"` : ""}
-        >
-          <td>${detalle.trabajoId || ""}</td>
-          <td>${detalle.origen || ""}</td>
-          <td>${detalle.responsable || ""}</td>
-          <td>${detalle.detalleTrabajo || ""}</td>
-          <td>${detalle.actividad || ""}</td>
-          <td>${detalle.fecha || ""}</td>
-          <td>${formatearMinutos(detalle.tiempo || 0)}</td>
-          <td>${detalle.estado || ""}</td>
-        </tr>
-      `;
-          })
-          .join("");
+        ultimoDetalleTecnico = tecnico.detalles.map((detalle) => {
+          const trabajoId = detalle.trabajoId || "";
+          const origen = detalle.origen || "";
+          const responsable = detalle.responsable || "";
+          const detalleTrabajo = detalle.detalleTrabajo || "";
+          const actividad = detalle.actividad || "";
+          const fecha = detalle.fecha || "";
+          const tiempoMin = Number(detalle.tiempo || 0);
+          const estado = detalle.estado || "";
+
+          let fechaIso = "";
+          if (fecha && /^\d{2}\/\d{2}\/\d{4}$/.test(fecha)) {
+            const [dia, mes, anio] = fecha.split("/");
+            fechaIso = `${anio}-${mes}-${dia}`;
+          }
+
+          return {
+            trabajoId,
+            trabajo: trabajoId,
+            origen,
+            responsable,
+            detalle: detalleTrabajo,
+            actividad,
+            fecha,
+            fecha_iso: fechaIso,
+            tiempo: formatearMinutos(tiempoMin),
+            tiempo_seg: Math.round(tiempoMin * 60),
+            estado,
+          };
+        });
+
+        ultimoDetalleTecnico.sort((a, b) =>
+          compararValoresDetalle(
+            a,
+            b,
+            ordenActualDetalle.columna,
+            ordenActualDetalle.direccion,
+          ),
+        );
 
         cont.innerHTML = `
-            <h3>Detalle de ${nombreTecnico}</h3>
-            <div class="tabla-scroll-wrap">
-              <table class="tabla-reportes tabla-detalle">
-                <tr>
-                  <th>Trabajo</th>
-                  <th>Origen</th>
-                  <th>Responsable</th>
-                  <th>Detalle trabajo</th>
-                  <th>Actividad</th>
-                  <th>Fecha</th>
-                  <th>Tiempo</th>
-                  <th>Estado</th>
-                </tr>
-                ${filas}
-              </table>
-            </div>
-          `;
+    <h3>Detalle de ${nombreTecnico}</h3>
+    <div class="tabla-scroll-wrap">
+      <table class="tabla-reportes tabla-detalle">
+        <thead>
+          <tr>
+            <th onclick="ordenarYRenderizarDetalle('trabajo')" style="cursor:pointer;">Trabajo</th>
+            <th onclick="ordenarYRenderizarDetalle('origen')" style="cursor:pointer;">Origen</th>
+            <th onclick="ordenarYRenderizarDetalle('responsable')" style="cursor:pointer;">Responsable</th>
+            <th onclick="ordenarYRenderizarDetalle('detalle')" style="cursor:pointer;">Detalle trabajo</th>
+            <th onclick="ordenarYRenderizarDetalle('actividad')" style="cursor:pointer;">Actividad</th>
+            <th onclick="ordenarYRenderizarDetalle('fecha')" style="cursor:pointer;">Fecha</th>
+            <th onclick="ordenarYRenderizarDetalle('tiempo')" style="cursor:pointer;">Tiempo</th>
+            <th onclick="ordenarYRenderizarDetalle('estado')" style="cursor:pointer;">Estado</th>
+          </tr>
+        </thead>
+        <tbody id="tablaDetalleTecnicoBody"></tbody>
+      </table>
+    </div>
+  `;
+
+        renderizarTablaDetalleTecnico();
       }
 
       function limpiarDetalleTecnico() {
