@@ -128,6 +128,15 @@ function actualizarBotonesCrearTrabajoMovil() {
   acciones.style.bottom = `${Math.max(10, inset + 10)}px`;
 }
 
+function obtenerFechaLocalISO() {
+  const now = new Date();
+
+  const offset = now.getTimezoneOffset();
+  const local = new Date(now.getTime() - offset * 60000);
+
+  return local.toISOString().split("T")[0]; // YYYY-MM-DD
+}
+
 function registrarComportamientoBotonesCrearTrabajoMovil() {
   const descripcion = document.getElementById("descripcion");
   const solicitante = document.getElementById("solicitanteInterno");
@@ -360,6 +369,7 @@ async function crearTrabajo() {
       creado_por_nombre: String(window.USUARIO_NOMBRE_ACTUAL || ""),
       estado: "pendiente",
       created_at: ahora,
+      fecha_local: obtenerFechaLocalISO(), // 👈 NUEVO
       primer_inicio_at: null,
       finalizado_at: null,
       ultima_actividad_at: null,
@@ -391,6 +401,7 @@ async function crearTrabajo() {
       origen: origenTrabajoSeleccionado,
       responsable_nombre: responsableNombre,
       created_at: ahora,
+      fecha_local: obtenerFechaLocalISO(), // 👈 NUEVO
       primer_inicio_at: null,
       ultima_reanudacion_at: null,
       ultima_pausa_at: null,
@@ -3539,6 +3550,7 @@ async function guardarEdicionActividad() {
         origen: trabajo.origen || null,
         responsable_nombre: trabajo.responsable_nombre || null,
         created_at: ahora,
+        fecha_local: obtenerFechaLocalISO(), // 👈 NUEVO
         primer_inicio_at: null,
         ultima_reanudacion_at: null,
         ultima_pausa_at: null,
@@ -4545,6 +4557,7 @@ async function crearEventoActividad({
       tecnico_nombre: tecnicoNombre || "Técnico",
       timestamp: ahora.toISOString(),
       timestamp_ms: ahora.getTime(),
+      fecha_local: obtenerFechaLocalISO(), // 👈 NUEVO
     });
   } catch (error) {
     console.error("Error creando evento de actividad:", error);

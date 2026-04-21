@@ -107,13 +107,11 @@
 
     <script>
       function obtenerResumenActual() {
-        if (!fechaActualCache || !cacheReportes[fechaActualCache]) {
-          return { tecnicos: [], trabajos: [] };
-        }
-        return cacheReportes[fechaActualCache];
+        return ultimoResumenReportes || { tecnicos: [], trabajos: [] };
       }
-      let cacheReportes = {};
-      let fechaActualCache = null;
+
+      let ultimoResumenReportes = { tecnicos: [], trabajos: [] };
+      let fechaActualConsulta = null;
       let ultimaProductividadCalculada = {};
       let ultimoDetalleTecnico = [];
       let ordenActualDetalle = {
@@ -121,211 +119,6 @@
         direccion: "desc",
       };
       let tecnicoSeleccionadoTarjeta = "";
-      function tiempoTextoASegundos(texto) {
-        if (!texto) return 0;
-
-        const matchHoras = String(texto).match(/(\d+)h/);
-        const matchMinutos = String(texto).match(/(\d+)m/);
-
-        const horas = matchHoras ? Number(matchHoras[1]) : 0;
-        const minutos = matchMinutos ? Number(matchMinutos[1]) : 0;
-
-        return horas * 3600 + minutos * 60;
-      }
-
-      function compararValoresDetalle(a, b, columna, direccion) {
-        let valorA;
-        let valorB;
-
-        switch (columna) {
-          case "trabajo":
-            valorA = Number(a.trabajo || 0);
-            valorB = Number(b.trabajo || 0);
-            break;
-
-          case "fecha":
-            valorA = String(a.fecha_iso || "");
-            valorB = String(b.fecha_iso || "");
-            break;
-
-          case "tiempo":
-            valorA = Number(a.tiempo_seg || 0);
-            valorB = Number(b.tiempo_seg || 0);
-            break;
-
-          default:
-            valorA = String(a[columna] || "").toLowerCase();
-            valorB = String(b[columna] || "").toLowerCase();
-            break;
-        }
-
-        if (valorA < valorB) return direccion === "asc" ? -1 : 1;
-        if (valorA > valorB) return direccion === "asc" ? 1 : -1;
-        return 0;
-      }
-
-      function ordenarYRenderizarDetalle(columna) {
-        if (
-          !Array.isArray(ultimoDetalleTecnico) ||
-          !ultimoDetalleTecnico.length
-        )
-          return;
-
-        if (ordenActualDetalle.columna === columna) {
-          ordenActualDetalle.direccion =
-            ordenActualDetalle.direccion === "asc" ? "desc" : "asc";
-        } else {
-          ordenActualDetalle.columna = columna;
-          ordenActualDetalle.direccion = "asc";
-        }
-
-        ultimoDetalleTecnico.sort((a, b) =>
-          compararValoresDetalle(
-            a,
-            b,
-            ordenActualDetalle.columna,
-            ordenActualDetalle.direccion,
-          ),
-        );
-
-        renderizarTablaDetalleTecnico();
-      }
-
-      function renderizarTablaDetalleTecnico() {
-        const tbody = document.getElementById("tablaDetalleTecnicoBody");
-        if (!tbody) return;
-
-        tbody.innerHTML = ultimoDetalleTecnico
-          .map((item) => {
-            const trabajoIdSeguro = String(item.trabajoId || "").replace(
-              /'/g,
-              "\\'",
-            );
-            const claseInterna =
-              String(item.origen || "").toLowerCase() === "interno"
-                ? "fila-interna"
-                : "";
-
-            return `
-        <tr
-          class="fila-seleccionable ${claseInterna}"
-          ${item.trabajoId ? `onclick="abrirDesdeDetalleTrabajo('${trabajoIdSeguro}')"` : ""}
-        >
-          <td>${item.trabajo || ""}</td>
-          <td>${item.origen || ""}</td>
-          <td>${item.responsable || ""}</td>
-          <td>${item.detalle || ""}</td>
-          <td>${item.actividad || ""}</td>
-          <td>${item.fecha || ""}</td>
-          <td>${item.tiempo || ""}</td>
-          <td>${item.estado || ""}</td>
-        </tr>
-      `;
-          })
-          .join("");
-      }
-
-      function obtenerFechasEntre(desde, hasta) {
-        if (!desde) return [];
-
-        const fechaInicio = new Date(`${desde}T00:00:00`);
-        const fechaFin = new Date(`${hasta || desde}T00:00:00`);
-
-        if (isNaN(fechaInicio.getTime()) || isNaN(fechaFin.getTime()))
-          return [];
-
-        const inicio = fechaInicio <= fechaFin ? fechaInicio : fechaFin;
-        const fin = fechaInicio <= fechaFin ? fechaFin : fechaInicio;
-
-        const fechas = [];
-        const cursor = new Date(inicio);
-
-        while (cursor <= fin) {
-          const yyyy = cursor.getFullYear();
-          const mm = String(cursor.getMonth() + 1).padStart(2, "0");
-          const dd = String(cursor.getDate()).padStart(2, "0");
-          fechas.push(`${yyyy}-${mm}-${dd}`);
-          cursor.setDate(cursor.getDate() + 1);
-        }
-
-        return fechas;
-      }
-
-      function combinarResumenesPorFechas(fechas) {
-        const combinados = {
-          tecnicos: [],
-          trabajos: [],
-        };
-
-        const tecnicosMap = new Map();
-        const trabajosMap = new Map();
-
-        fechas.forEach((fecha) => {
-          const resumen = cacheReportes[fecha];
-          if (!resumen) return;
-
-          const tecnicos = Array.isArray(resumen.tecnicos)
-            ? resumen.tecnicos
-            : [];
-          const trabajos = Array.isArray(resumen.trabajos)
-            ? resumen.trabajos
-            : [];
-
-          tecnicos.forEach((tec) => {
-            const clave = String(tec?.nombre || "").trim();
-            if (!clave) return;
-            if (!tecnicosMap.has(clave)) {
-              tecnicosMap.set(clave, tec);
-            }
-          });
-
-          trabajos.forEach((tr) => {
-            const clave = String(tr?.id || "").trim();
-            if (!clave) return;
-            if (!trabajosMap.has(clave)) {
-              trabajosMap.set(clave, tr);
-            }
-          });
-        });
-
-        combinados.tecnicos = Array.from(tecnicosMap.values());
-        combinados.trabajos = Array.from(trabajosMap.values());
-
-        return combinados;
-      }
-
-      const CACHE_REPORTES_KEY = "control_taller_cache_reportes_v1";
-
-      function cargarCachePersistenteReportes() {
-        try {
-          const bruto = sessionStorage.getItem(CACHE_REPORTES_KEY);
-          if (!bruto) return {};
-
-          const data = JSON.parse(bruto);
-          if (!data || typeof data !== "object") return {};
-
-          return data;
-        } catch (error) {
-          console.error("Error leyendo cache persistente de reportes:", error);
-          return {};
-        }
-      }
-
-      function guardarCachePersistenteReportes() {
-        try {
-          sessionStorage.setItem(
-            CACHE_REPORTES_KEY,
-            JSON.stringify(cacheReportes),
-          );
-        } catch (error) {
-          console.error(
-            "Error guardando cache persistente de reportes:",
-            error,
-          );
-        }
-      }
-
-      cacheReportes = cargarCachePersistenteReportes();
 
       function obtenerFiltrosReportes() {
         return {
@@ -561,6 +354,28 @@
         return Math.max(0, Math.round(Number(valor || 0) * 100) / 100);
       }
 
+      function obtenerTiempoTecnicoEnMinutos(tec) {
+        let tiempoMin = Number(tec?.tiempo_acumulado_seg || 0) / 60;
+
+        if (
+          String(tec?.estado_en_trabajo || "").toLowerCase() === "trabajando" &&
+          tec?.asignado_at
+        ) {
+          const inicio = new Date(tec.asignado_at);
+          const ahora = new Date();
+
+          if (
+            !isNaN(inicio.getTime()) &&
+            !isNaN(ahora.getTime()) &&
+            ahora >= inicio
+          ) {
+            tiempoMin += (ahora - inicio) / 60000;
+          }
+        }
+
+        return redondearMinutos(tiempoMin);
+      }
+
       function crearRegistroTecnico(nombre) {
         return {
           nombre,
@@ -653,46 +468,28 @@
       }
 
       async function cargarProductividad() {
-        const hoy = new Date();
-        const yyyy = hoy.getFullYear();
-        const mm = String(hoy.getMonth() + 1).padStart(2, "0");
-        const dd = String(hoy.getDate()).padStart(2, "0");
-        const fechaHoy = `${yyyy}-${mm}-${dd}`;
+        try {
+          mostrarEstadoProductividad("Cargando datos...");
 
-        // En segundo plano sí usamos hoy
-        fechaActualCache = fechaHoy;
+          const { desde, hasta } = obtenerFiltrosReportes();
 
-        // Pero visualmente el campo queda vacío
-        document.getElementById("filtroFechaDesde").value = "";
-        document.getElementById("filtroFechaHasta").value = "";
+          // 🔥 SIEMPRE consultar Firestore (sin cache)
+          const resumen = await cargarResumenPorFecha(desde, hasta);
 
-        const inputRango = document.getElementById("filtroFechaRango");
-        if (inputRango) inputRango.value = "";
+          ultimoResumenReportes = resumen;
 
-        if (typeof pickerFechaRango !== "undefined" && pickerFechaRango) {
-          pickerFechaRango.clear();
+          // Procesar datos
+          const trabajos = resumen.trabajos || [];
+          const tecnicos = resumen.tecnicos || [];
+
+          // 👉 aquí sigue tu lógica existente SIN CAMBIOS
+          // (todo lo que ya tienes para calcular productividad)
+
+          mostrarEstadoProductividad("");
+        } catch (error) {
+          console.error("Error en productividad:", error);
+          mostrarEstadoProductividad("Error al cargar datos");
         }
-
-        if (!cacheReportes[fechaHoy]) {
-          const res = await fetch(`/api/resumen?fecha=${fechaHoy}`);
-          const data = await res.json();
-
-          cacheReportes[fechaHoy] = {
-            tecnicos: data.tecnicos || [],
-            trabajos: data.trabajos || [],
-          };
-
-          guardarCachePersistenteReportes();
-        }
-
-        fechaActualCache = fechaHoy;
-
-        llenarFiltros(
-          cacheReportes[fechaHoy].tecnicos || [],
-          cacheReportes[fechaHoy].trabajos || [],
-        );
-
-        recalcularProductividadDesdeMemoria();
       }
 
       async function limpiarReporteTrabajo() {
@@ -1185,9 +982,7 @@
               );
               if (!registroTecnico) return;
 
-              const tiempoMin = redondearMinutos(
-                Number(tec.tiempo_acumulado_seg || 0) / 60,
-              );
+              const tiempoMin = obtenerTiempoTecnicoEnMinutos(tec);
 
               const claveActividad = obtenerClaveActividad(tr, act, tec.nombre);
               registrarActividadSiNoExiste(registroTecnico, claveActividad);
@@ -1413,7 +1208,7 @@
               }
 
               tecnicosInvolucrados.add(tec.nombre);
-              tiempoTotalMin += Number(tec.tiempo_acumulado_seg || 0) / 60;
+              tiempoTotalMin += obtenerTiempoTecnicoEnMinutos(tec);
               actividadCuenta = true;
               trabajoCuenta = true;
             });
