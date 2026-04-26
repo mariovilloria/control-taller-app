@@ -1394,7 +1394,7 @@ def api_reportes_v2():
 def reportes_v2():
     return render_template(
         "reportes_v2.html",
-        firebase_config=FIREBASE_CONFIG,
+        firebase_config=firebase_settings["web_config"],
         app_env=APP_ENV,
     )
 
