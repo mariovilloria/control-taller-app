@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Reportes V2</title>
+
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/styles.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/reportes_v2.css') }}"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css"
+    />
+  </head>
+
+  <body>
+    <div class="contenedor-reportes">
+      <!-- 🔍 FILTROS -->
+      <div class="bloque bloque-filtros-v2">
+        <h3>Filtros</h3>
+
+        <div class="filtros-row-v2">
+          <input
+            type="text"
+            id="rangoFechas"
+            class="input-fechas-v2"
+            placeholder="Selecciona rango de fechas"
+          />
+
+          <input type="hidden" id="fechaDesdeHidden" />
+          <input type="hidden" id="fechaHastaHidden" />
+
+          <select id="filtroOrigen" class="select-filtro-v2">
+            <option value="">Todos los orígenes</option>
+            <option value="vendedor">Vendedor</option>
+            <option value="interno">Interno</option>
+          </select>
+
+          <input
+            type="text"
+            id="filtroResponsable"
+            class="input-filtro-v2"
+            placeholder="Responsable"
+          />
+
+          <button id="btnBuscar" class="btn-filtro-v2 btn-filtro-buscar-v2">
+            Actualizar
+          </button>
+
+          <button
+            type="button"
+            id="btnLimpiarFiltros"
+            class="btn-filtro-v2 btn-filtro-limpiar-v2"
+          >
+            Limpiar
+          </button>
+        </div>
+      </div>
+
+      <!-- 📊 RESUMEN -->
+      <div class="bloque">
+        <h3>Resumen</h3>
+        <div
+          id="dashboardKPIs"
+          class="resumen"
+          style="margin-bottom: 12px"
+        ></div>
+        <div id="resumenGeneral" class="resumen">
+          <!-- dinámico -->
+        </div>
+      </div>
+      <!-- 🔎 BÚSQUEDA POR TRABAJO -->
+      <div class="bloque">
+        <h3>Buscar Trabajo</h3>
+
+        <div class="busqueda-trabajo">
+          <input
+            type="number"
+            id="buscarTrabajoId"
+            class="buscar-trabajo-input-v2"
+            placeholder="Escribe el ID del trabajo"
+          />
+          <button id="btnBuscarTrabajo" class="btn-buscar-trabajo-v2">
+            Buscar
+          </button>
+          <button
+            type="button"
+            id="btnLimpiarTrabajo"
+            class="btn-limpiar-trabajo-v2"
+          >
+            Limpiar
+          </button>
+        </div>
+
+        <div id="resultadoTrabajo">
+          <!-- dinámico -->
+        </div>
+      </div>
+      <!-- 👨‍🔧 TARJETAS TÉCNICOS -->
+      <div class="bloque">
+        <h3>Técnicos</h3>
+
+        <div id="tarjetasTecnicos" class="tarjetas-tecnicos">
+          <!-- dinámico -->
+        </div>
+      </div>
+      <div class="bloque">
+        <h3>Trabajos</h3>
+
+        <div id="listaTrabajosV2">
+          <!-- dinámico -->
+        </div>
+      </div>
+    </div>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+    <script src="{{ url_for('static', filename='js/utils.js') }}"></script>
+
+    <script>
+      window.firebaseConfig = {{ firebase_config | tojson }};
+      window.APP_ENV = {{ app_env | tojson }};
+    </script>
+
+    <script>
+      if (!firebase.apps.length) {
+        firebase.initializeApp(window.firebaseConfig);
+      }
+      window.db = firebase.firestore();
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="{{ url_for('static', filename='js/reportes_v2.js') }}?v=8"></script>
+  </body>
+</html>
