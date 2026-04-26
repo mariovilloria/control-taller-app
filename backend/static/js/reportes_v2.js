@@ -1,6 +1,7 @@
 let tecnicoSeleccionadoId = null;
 let trabajosExpandidosV2 = new Set();
 let dataActualReportesV2 = { trabajos: [], actividades: [] };
+const cacheRangosReportesV2 = new Map();
 let timerBusquedaFiltrosV2 = null;
 let fechaDesdeCargadaReportesV2 = "";
 let fechaHastaCargadaReportesV2 = "";
@@ -67,7 +68,7 @@ function registrarEventosReportesV2() {
 
       if (!filtros.fechaDesde || !filtros.fechaHasta) return;
 
-      await buscarRangoReportesV2(); // solo aquí se permite backend
+      await buscarRangoReportesV2(true);
     });
   }
 
@@ -129,6 +130,7 @@ async function cargarHoyEnReportesV2() {
   const dataFresh = await consultarDiaFirestoreReportesV2(hoy);
 
   dataActualReportesV2 = dataFresh;
+  cacheRangosReportesV2.set(`${hoy}|${hoy}`, dataFresh);
   fechaDesdeCargadaReportesV2 = hoy;
   fechaHastaCargadaReportesV2 = hoy;
   renderizarVistaReportesV2({
@@ -195,7 +197,7 @@ function obtenerFiltrosReportesV2() {
   };
 }
 
-async function buscarRangoReportesV2() {
+async function buscarRangoReportesV2(forzar = false) {
   const filtros = obtenerFiltrosReportesV2();
 
   if (!filtros.fechaDesde || !filtros.fechaHasta) {
@@ -204,6 +206,15 @@ async function buscarRangoReportesV2() {
 
   tecnicoSeleccionadoId = null;
   limpiarBusquedaTrabajoV2();
+
+  const claveCache = `${filtros.fechaDesde}|${filtros.fechaHasta}`;
+
+  if (!forzar && cacheRangosReportesV2.has(claveCache)) {
+    dataActualReportesV2 = cacheRangosReportesV2.get(claveCache);
+    renderizarVistaReportesV2(filtros);
+    return;
+  }
+
   mostrarEstadoReportesV2("Buscando datos...");
 
   try {
@@ -219,8 +230,8 @@ async function buscarRangoReportesV2() {
     }
 
     dataActualReportesV2 = normalizarRespuestaReportesV2(data);
-    fechaDesdeCargadaReportesV2 = filtros.fechaDesde;
-    fechaHastaCargadaReportesV2 = filtros.fechaHasta;
+    cacheRangosReportesV2.set(claveCache, dataActualReportesV2);
+
     renderizarVistaReportesV2(filtros);
   } catch (error) {
     console.error("Error buscando rango reportes_v2:", error);
