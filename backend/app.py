@@ -1308,7 +1308,87 @@ def editar_trabajo(trabajo_id):
     )
 
 
-import os
+@app.route("/api/reportes_v2")
+def api_reportes_v2():
+    desde = (request.args.get("desde") or "").strip()
+    hasta = (request.args.get("hasta") or "").strip()
+
+    if not desde or not hasta:
+        return jsonify({"ok": False, "error": "Faltan fechas"}), 400
+
+    try:
+        fecha_desde = datetime.strptime(desde, "%Y-%m-%d").date()
+        fecha_hasta = datetime.strptime(hasta, "%Y-%m-%d").date()
+    except Exception:
+        return jsonify({"ok": False, "error": "Formato inválido"}), 400
+
+    if fecha_desde > fecha_hasta:
+        return jsonify({"ok": False, "error": "Rango inválido"}), 400
+
+    try:
+        # 🔹 1 sola consulta a trabajos
+        trabajos_docs = (
+            db.collection("trabajos")
+            .where("fecha_local", ">=", desde)
+            .where("fecha_local", "<=", hasta)
+            .stream()
+        )
+
+        trabajos = []
+        trabajos_ids = set()
+
+        for doc in trabajos_docs:
+            data = doc.to_dict() or {}
+
+            if data.get("activo", True) is False:
+                continue
+
+            trabajos.append(data)
+
+            try:
+                trabajos_ids.add(int(doc.id))
+            except:
+                pass
+
+        # 🔹 1 sola consulta a actividades
+        actividades_docs = (
+            db.collection("actividades")
+            .where("fecha_local", ">=", desde)
+            .where("fecha_local", "<=", hasta)
+            .stream()
+        )
+
+        actividades = []
+
+        for doc in actividades_docs:
+            data = doc.to_dict() or {}
+
+            if data.get("activo", True) is False:
+                continue
+
+            # filtrar solo actividades de trabajos traídos
+            if int(data.get("trabajo_id", 0)) in trabajos_ids:
+                actividades.append(data)
+
+        return jsonify(
+            {
+                "ok": True,
+                "trabajos": trabajos,
+                "actividades": actividades,
+            }
+        )
+
+    except Exception as e:
+        return (
+            jsonify(
+                {
+                    "ok": False,
+                    "error": str(e),
+                }
+            ),
+            500,
+        )
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
