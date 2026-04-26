@@ -1390,6 +1390,15 @@ def api_reportes_v2():
         )
 
 
+@app.route("/reportes_v2")
+def reportes_v2():
+    return render_template(
+        "reportes_v2.html",
+        firebase_config=FIREBASE_CONFIG,
+        app_env=APP_ENV,
+    )
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=5000, debug=True)
