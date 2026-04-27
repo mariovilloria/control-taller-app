@@ -983,7 +983,7 @@ function toggleTrabajoV2(trabajoId) {
   renderizarVistaReportesV2(obtenerFiltrosReportesV2());
 }
 
-function buscarTrabajoPorIdV2() {
+async function buscarTrabajoPorIdV2() {
   const input = document.getElementById("buscarTrabajoId");
   const contenedor = document.getElementById("resultadoTrabajo");
   if (!input || !contenedor) return;
@@ -1006,27 +1006,69 @@ function buscarTrabajoPorIdV2() {
     ? dataActualReportesV2.actividades
     : [];
 
+  // 🔹 1. Buscar en cache actual
   const trabajo = trabajos.find((t) => Number(t?.id) === Number(trabajoId));
 
-  if (!trabajo) {
+  if (trabajo) {
+    const actividadesTrabajo = actividades.filter(
+      (a) => Number(a?.trabajo_id) === Number(trabajoId),
+    );
+
     contenedor.innerHTML = `
-      <div style="color:#667085;">
-        No se encontró el trabajo en la data cargada actualmente.
+      <div id="resultadoTrabajoCardV2" class="resultado-destacado-v2" style="margin-top:12px;">
+        ${htmlTrabajoBuscadoV2(trabajo, actividadesTrabajo)}
       </div>
     `;
+
+    scrollResultadoTrabajoV2();
     return;
   }
 
-  const actividadesTrabajo = actividades.filter(
-    (a) => Number(a?.trabajo_id) === Number(trabajoId),
-  );
+  // 🔹 2. Si no está en cache → backend puntual
+  try {
+    const resp = await fetch(`/api/trabajo/${trabajoId}`, {
+      cache: "no-store",
+    });
 
-  contenedor.innerHTML = `
-    <div id="resultadoTrabajoCardV2" class="resultado-destacado-v2" style="margin-top:12px;">
-      ${htmlTrabajoBuscadoV2(trabajo, actividadesTrabajo)}
-    </div>
-  `;
+    if (resp.status === 404) {
+      contenedor.innerHTML = `
+        <div style="color:#667085;">
+          No se encontró el trabajo.
+        </div>
+      `;
+      return;
+    }
 
+    const data = await resp.json();
+
+    if (!resp.ok || !data?.trabajo) {
+      throw new Error("Respuesta inválida");
+    }
+
+    const trabajoBackend = data.trabajo;
+    const actividadesBackend = Array.isArray(trabajoBackend?.actividades)
+      ? trabajoBackend.actividades
+      : [];
+
+    contenedor.innerHTML = `
+      <div id="resultadoTrabajoCardV2" class="resultado-destacado-v2" style="margin-top:12px;">
+        ${htmlTrabajoBuscadoV2(trabajoBackend, actividadesBackend)}
+      </div>
+    `;
+
+    scrollResultadoTrabajoV2();
+  } catch (error) {
+    console.error("Error buscando trabajo por ID:", error);
+
+    contenedor.innerHTML = `
+      <div style="color:#667085;">
+        Error al buscar el trabajo.
+      </div>
+    `;
+  }
+}
+
+function scrollResultadoTrabajoV2() {
   setTimeout(() => {
     const target = document.getElementById("resultadoTrabajoCardV2");
     if (target) {
