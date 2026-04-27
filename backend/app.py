@@ -1197,36 +1197,11 @@ def api_trabajo_por_id(trabajo_id):
     for doc in actividades_docs:
         act = doc.to_dict() or {}
 
-        actividad_convertida = {
-            "id": doc.id,
-            "descripcion": act.get("descripcion"),
-            "estado": act.get("estado"),
-            "created_at": act.get("created_at"),
-            "inicio_proceso_at": act.get("inicio_actual_at"),
-            "finalizado_at": act.get("finalizado_at"),
-            "tecnicos": [],
-            "historial_tecnicos": [],
-        }
+        if act.get("activo", True) is False:
+            continue
 
-        participantes = act.get("participantes", []) or []
-
-        for p in participantes:
-            tecnico_data = {
-                "id": p.get("tecnico_id"),
-                "nombre": p.get("tecnico_nombre"),
-                "estado_en_trabajo": p.get("estado"),
-                "asignado_at": p.get("inicio_actual_at"),
-                "pausado_at": p.get("pausa_actual_at"),
-                "finalizado_at": p.get("finalizado_at"),
-                "tiempo_acumulado_seg": p.get("tiempo_real_seg", 0),
-            }
-
-            if p.get("activo"):
-                actividad_convertida["tecnicos"].append(tecnico_data)
-            else:
-                actividad_convertida["historial_tecnicos"].append(tecnico_data)
-
-        actividades.append(actividad_convertida)
+        act["id"] = doc.id
+        actividades.append(act)
 
     trabajo["actividades"] = actividades
 
