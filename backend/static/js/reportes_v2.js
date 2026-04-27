@@ -1,10 +1,8 @@
 let tecnicoSeleccionadoId = null;
 let trabajosExpandidosV2 = new Set();
 let dataActualReportesV2 = { trabajos: [], actividades: [] };
-const cacheRangosReportesV2 = new Map();
+const cacheDiasReportesV2 = new Map();
 let timerBusquedaFiltrosV2 = null;
-let fechaDesdeCargadaReportesV2 = "";
-let fechaHastaCargadaReportesV2 = "";
 document.addEventListener("DOMContentLoaded", async () => {
   inicializarFechasHoy();
   registrarEventosReportesV2();
@@ -39,16 +37,6 @@ function inicializarFechasHoy() {
         instance.setDate([unica, unica], false);
       }
 
-      const filtros = obtenerFiltrosReportesV2();
-
-      if (!filtros.fechaDesde || !filtros.fechaHasta) return;
-
-      const mismaFecha =
-        filtros.fechaDesde === fechaDesdeCargadaReportesV2 &&
-        filtros.fechaHasta === fechaHastaCargadaReportesV2;
-
-      if (mismaFecha) return;
-
       buscarRangoReportesV2();
     },
   });
@@ -64,9 +52,14 @@ function registrarEventosReportesV2() {
 
   if (btnBuscar) {
     btnBuscar.addEventListener("click", async () => {
-      const filtros = obtenerFiltrosReportesV2();
+      const hoy = obtenerFechaHoyLocal();
+      const rangoInput = document.getElementById("rangoFechas");
 
-      if (!filtros.fechaDesde || !filtros.fechaHasta) return;
+      if (rangoInput && rangoInput._flatpickr) {
+        rangoInput._flatpickr.setDate([hoy, hoy], false);
+      } else if (rangoInput) {
+        rangoInput.value = hoy;
+      }
 
       await buscarRangoReportesV2(true);
     });
@@ -129,10 +122,8 @@ async function cargarHoyEnReportesV2() {
 
   const dataFresh = await consultarDiaFirestoreReportesV2(hoy);
 
-  dataActualReportesV2 = dataFresh;
-  cacheRangosReportesV2.set(`${hoy}|${hoy}`, dataFresh);
-  fechaDesdeCargadaReportesV2 = hoy;
-  fechaHastaCargadaReportesV2 = hoy;
+  guardarRangoEnCacheDiasReportesV2(hoy, hoy, dataFresh);
+  dataActualReportesV2 = construirDataDesdeCacheDiasReportesV2([hoy]);
   renderizarVistaReportesV2({
     fechaDesde: hoy,
     fechaHasta: hoy,
@@ -197,6 +188,92 @@ function obtenerFiltrosReportesV2() {
   };
 }
 
+function obtenerFechasRangoReportesV2(desde, hasta) {
+  const fechas = [];
+
+  const inicio = new Date(`${desde}T00:00:00`);
+  const fin = new Date(`${hasta}T00:00:00`);
+
+  if (isNaN(inicio.getTime()) || isNaN(fin.getTime())) return fechas;
+
+  const cursor = new Date(inicio);
+
+  while (cursor <= fin) {
+    const yyyy = cursor.getFullYear();
+    const mm = String(cursor.getMonth() + 1).padStart(2, "0");
+    const dd = String(cursor.getDate()).padStart(2, "0");
+
+    fechas.push(`${yyyy}-${mm}-${dd}`);
+
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return fechas;
+}
+
+function guardarRangoEnCacheDiasReportesV2(desde, hasta, data) {
+  const fechas = obtenerFechasRangoReportesV2(desde, hasta);
+
+  fechas.forEach((fecha) => {
+    cacheDiasReportesV2.set(fecha, {
+      trabajos: [],
+      actividades: [],
+    });
+  });
+
+  const trabajos = Array.isArray(data?.trabajos) ? data.trabajos : [];
+  const actividades = Array.isArray(data?.actividades) ? data.actividades : [];
+
+  trabajos.forEach((trabajo) => {
+    const fecha = String(trabajo?.fecha_local || "").trim();
+    if (!fecha || !cacheDiasReportesV2.has(fecha)) return;
+
+    cacheDiasReportesV2.get(fecha).trabajos.push(trabajo);
+  });
+
+  actividades.forEach((actividad) => {
+    const fecha = String(actividad?.fecha_local || "").trim();
+    if (!fecha || !cacheDiasReportesV2.has(fecha)) return;
+
+    cacheDiasReportesV2.get(fecha).actividades.push(actividad);
+  });
+}
+
+function construirDataDesdeCacheDiasReportesV2(fechas) {
+  const trabajosPorId = new Map();
+  const actividadesPorId = new Map();
+
+  fechas.forEach((fecha) => {
+    const dataDia = cacheDiasReportesV2.get(fecha);
+
+    if (!dataDia) return;
+
+    const trabajos = Array.isArray(dataDia.trabajos) ? dataDia.trabajos : [];
+    const actividades = Array.isArray(dataDia.actividades)
+      ? dataDia.actividades
+      : [];
+
+    trabajos.forEach((trabajo) => {
+      const id = Number(trabajo?.id || 0);
+      if (id > 0) trabajosPorId.set(id, trabajo);
+    });
+
+    actividades.forEach((actividad) => {
+      const id = String(actividad?.id || "").trim();
+      if (id) actividadesPorId.set(id, actividad);
+    });
+  });
+
+  return {
+    trabajos: Array.from(trabajosPorId.values()),
+    actividades: Array.from(actividadesPorId.values()),
+  };
+}
+
+function rangoCompletoEnCacheReportesV2(fechas) {
+  return fechas.every((fecha) => cacheDiasReportesV2.has(fecha));
+}
+
 async function buscarRangoReportesV2(forzar = false) {
   const filtros = obtenerFiltrosReportesV2();
 
@@ -207,10 +284,15 @@ async function buscarRangoReportesV2(forzar = false) {
   tecnicoSeleccionadoId = null;
   limpiarBusquedaTrabajoV2();
 
-  const claveCache = `${filtros.fechaDesde}|${filtros.fechaHasta}`;
+  const fechas = obtenerFechasRangoReportesV2(
+    filtros.fechaDesde,
+    filtros.fechaHasta,
+  );
 
-  if (!forzar && cacheRangosReportesV2.has(claveCache)) {
-    dataActualReportesV2 = cacheRangosReportesV2.get(claveCache);
+  if (fechas.length === 0) return;
+
+  if (!forzar && rangoCompletoEnCacheReportesV2(fechas)) {
+    dataActualReportesV2 = construirDataDesdeCacheDiasReportesV2(fechas);
     renderizarVistaReportesV2(filtros);
     return;
   }
@@ -229,8 +311,15 @@ async function buscarRangoReportesV2(forzar = false) {
       throw new Error(data?.error || "No se pudo consultar el rango");
     }
 
-    dataActualReportesV2 = normalizarRespuestaReportesV2(data);
-    cacheRangosReportesV2.set(claveCache, dataActualReportesV2);
+    const dataNormalizada = normalizarRespuestaReportesV2(data);
+
+    guardarRangoEnCacheDiasReportesV2(
+      filtros.fechaDesde,
+      filtros.fechaHasta,
+      dataNormalizada,
+    );
+
+    dataActualReportesV2 = construirDataDesdeCacheDiasReportesV2(fechas);
 
     renderizarVistaReportesV2(filtros);
   } catch (error) {
