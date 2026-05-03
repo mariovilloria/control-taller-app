@@ -20,6 +20,22 @@
   </head>
 
   <body>
+    <div style="padding: 12px 16px">
+      <button
+        onclick="window.location.href='{{ url_for('panel') }}'"
+        style="
+          background: none;
+          border: none;
+          font-size: 16px;
+          cursor: pointer;
+          color: #0f172a;
+          font-weight: 600;
+        "
+      >
+        ← Volver al panel
+      </button>
+    </div>
+
     <div class="contenedor-reportes">
       <!-- 🔍 FILTROS -->
       <div class="bloque bloque-filtros-v2">
