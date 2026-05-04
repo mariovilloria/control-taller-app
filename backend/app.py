@@ -1195,7 +1195,14 @@ def api_reportes_v2():
                 trabajos_ids.add(int(doc.id))
             except:
                 pass
-
+        if not trabajos_ids:
+            return jsonify(
+                {
+                    "ok": True,
+                    "trabajos": [],
+                    "actividades": [],
+                }
+            )
         # 🔹 1 sola consulta a actividades
         actividades_docs = (
             db.collection("actividades")
