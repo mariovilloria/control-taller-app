@@ -2335,6 +2335,8 @@ function escucharDatosEnTiempoReal() {
     renderizarResumenDesdeMemoria();
   }, 60000);
 
+  const hoy = obtenerFechaLocalISO();
+
   let trabajos = [];
   let actividades = [];
   let tecnicos = [];
@@ -2380,12 +2382,11 @@ function escucharDatosEnTiempoReal() {
 
   unsubscribeTrabajos = window.db
     .collection("trabajos")
-    .orderBy("id")
+    .where("activo", "==", true)
+    .where("fecha_local", "==", hoy)
     .onSnapshot(
       (snapshot) => {
-        trabajos = snapshot.docs
-          .map((doc) => doc.data())
-          .filter((t) => t.activo !== false);
+        trabajos = snapshot.docs.map((doc) => doc.data());
         renderizarResumenDesdeMemoria();
       },
       (error) => {
@@ -2396,6 +2397,7 @@ function escucharDatosEnTiempoReal() {
   unsubscribeActividades = window.db
     .collection("actividades")
     .where("activo", "==", true)
+    .where("fecha_local", "==", hoy)
     .onSnapshot(
       (snapshot) => {
         actividades = snapshot.docs.map((doc) => doc.data());
