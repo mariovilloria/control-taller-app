@@ -659,6 +659,84 @@ function renderizarTarjetasTecnicosV2(data) {
     .join("");
 }
 
+function calcularTiemposTrabajoV2(actividades) {
+  let tiempoTrabajoSeg = 0;
+  let tiempoPausaSeg = 0;
+  let tiempoEsperaSeg = 0;
+
+  const acts = Array.isArray(actividades) ? actividades : [];
+
+  acts.forEach((act) => {
+    tiempoEsperaSeg += Number(act?.tiempo_espera_seg || 0);
+    tiempoPausaSeg += Number(act?.tiempo_pausa_seg || 0);
+
+    const participantes = Array.isArray(act?.participantes)
+      ? act.participantes
+      : [];
+
+    participantes.forEach((p) => {
+      const acumulado = Number(p?.tiempo_real_seg || 0);
+      const inicioActual = p?.inicio_actual_at;
+      const estado = String(p?.estado || "").toLowerCase();
+
+      let total = acumulado;
+
+      if (p?.activo !== false && estado === "activo" && inicioActual) {
+        const inicio = new Date(inicioActual);
+        if (!isNaN(inicio.getTime())) {
+          const ahora = new Date();
+          const extra = Math.max(0, Math.floor((ahora - inicio) / 1000));
+          total += extra;
+        }
+      }
+
+      tiempoTrabajoSeg += total;
+      tiempoPausaSeg += Number(p?.tiempo_pausa_seg || 0);
+    });
+  });
+
+  return {
+    tiempoTrabajoSeg,
+    tiempoPausaSeg,
+    tiempoEsperaSeg,
+  };
+}
+function calcularTiemposDesdeParticipantesV2(actividades) {
+  let tiempoTrabajoSeg = 0;
+  let tiempoPausaHombreSeg = 0;
+
+  const acts = Array.isArray(actividades) ? actividades : [];
+
+  acts.forEach((act) => {
+    const participantes = Array.isArray(act?.participantes)
+      ? act.participantes
+      : [];
+
+    participantes.forEach((p) => {
+      const acumulado = Number(p?.tiempo_real_seg || 0);
+      const inicioActual = p?.inicio_actual_at;
+      const estado = String(p?.estado || "").toLowerCase();
+
+      let totalTrabajo = acumulado;
+
+      if (p?.activo !== false && estado === "activo" && inicioActual) {
+        const inicio = new Date(inicioActual);
+        if (!isNaN(inicio.getTime())) {
+          const ahora = new Date();
+          totalTrabajo += Math.max(0, Math.floor((ahora - inicio) / 1000));
+        }
+      }
+
+      tiempoTrabajoSeg += totalTrabajo;
+      tiempoPausaHombreSeg += Number(p?.tiempo_pausa_seg || 0);
+    });
+  });
+
+  return {
+    tiempoTrabajoSeg,
+    tiempoPausaHombreSeg,
+  };
+}
 function renderizarTrabajosV2(data) {
   const contenedor = document.getElementById("listaTrabajosV2");
   if (!contenedor) return;
@@ -760,33 +838,42 @@ function renderizarTrabajosV2(data) {
     const expandido = trabajosExpandidosV2.has(trabajoId);
     const acts = actividadesPorTrabajo.get(trabajoId) || [];
 
-    let tiempoTotalTrabajo = 0;
+    const tiemposTrabajo = calcularTiemposDesdeParticipantesV2(acts);
+    const tiempoTotalTrabajo = tiemposTrabajo.tiempoTrabajoSeg;
+    const createdAt = trabajo?.created_at ? new Date(trabajo.created_at) : null;
+    const primerInicio = trabajo?.primer_inicio_at
+      ? new Date(trabajo.primer_inicio_at)
+      : null;
+    const finalizadoAt = trabajo?.finalizado_at
+      ? new Date(trabajo.finalizado_at)
+      : null;
 
-    acts.forEach((act) => {
-      const participantes = Array.isArray(act?.participantes)
-        ? act.participantes
-        : [];
+    let tiempoTotalRealSeg = 0;
+    let tiempoEsperaSeg = 0;
 
-      participantes.forEach((p) => {
-        const acumulado = Number(p?.tiempo_real_seg || 0);
-        const inicioActual = p?.inicio_actual_at;
-        const estado = String(p?.estado || "").toLowerCase();
+    if (
+      createdAt &&
+      finalizadoAt &&
+      !isNaN(createdAt) &&
+      !isNaN(finalizadoAt)
+    ) {
+      tiempoTotalRealSeg = Math.max(
+        0,
+        Math.floor((finalizadoAt - createdAt) / 1000),
+      );
+    }
 
-        let total = acumulado;
-
-        if (p?.activo !== false && estado === "activo" && inicioActual) {
-          const inicio = new Date(inicioActual);
-          if (!isNaN(inicio.getTime())) {
-            const ahora = new Date();
-            const extra = Math.max(0, Math.floor((ahora - inicio) / 1000));
-            total += extra;
-          }
-        }
-
-        tiempoTotalTrabajo += total;
-      });
-    });
-
+    if (
+      createdAt &&
+      primerInicio &&
+      !isNaN(createdAt) &&
+      !isNaN(primerInicio)
+    ) {
+      tiempoEsperaSeg = Math.max(
+        0,
+        Math.floor((primerInicio - createdAt) / 1000),
+      );
+    }
     const responsable = String(
       trabajo?.responsable_nombre ||
         trabajo?.vendedor_nombre ||
@@ -818,42 +905,68 @@ function renderizarTrabajosV2(data) {
                   ? act.participantes
                   : [];
 
-                const nombresTecnicos = [
-                  ...new Set(
-                    participantes
-                      .map((p) => String(p?.tecnico_nombre || "").trim())
-                      .filter(Boolean),
-                  ),
-                ];
+                const detalleTecnicos = participantes.map((p) => {
+                  const nombre = String(p?.tecnico_nombre || "Técnico");
+                  const trabajoSeg = Number(p?.tiempo_real_seg || 0);
+                  const pausaSeg = Number(p?.tiempo_pausa_seg || 0);
+                  const partes = [];
+
+                  if (trabajoSeg > 0) {
+                    partes.push(`Trabajo: ${formatearDuracionV2(trabajoSeg)}`);
+                  }
+
+                  if (pausaSeg > 0) {
+                    partes.push(`Pausa: ${formatearDuracionV2(pausaSeg)}`);
+                  }
+
+                  return `
+    <div style="font-size:12px; color:#475467;">
+      • ${escapeHtmlV2(nombre)}${partes.length > 0 ? ` · ${partes.join(" · ")}` : ""}
+    </div>
+  `;
+                });
 
                 let tiempoTotalActividad = 0;
 
-                participantes.forEach((p) => {
-                  const acumulado = Number(p?.tiempo_real_seg || 0);
-                  const inicioActual = p?.inicio_actual_at;
-                  const estado = String(p?.estado || "").toLowerCase();
+                const actividadInicio = act?.primer_inicio_at
+                  ? new Date(act.primer_inicio_at)
+                  : null;
 
-                  let total = acumulado;
+                const actividadFin = act?.finalizado_at
+                  ? new Date(act.finalizado_at)
+                  : null;
 
-                  if (
-                    p?.activo !== false &&
-                    estado === "activo" &&
-                    inicioActual
-                  ) {
-                    const inicio = new Date(inicioActual);
-                    if (!isNaN(inicio.getTime())) {
-                      const ahora = new Date();
-                      const extra = Math.max(
-                        0,
-                        Math.floor((ahora - inicio) / 1000),
-                      );
-                      total += extra;
-                    }
-                  }
+                if (
+                  actividadInicio &&
+                  actividadFin &&
+                  !isNaN(actividadInicio.getTime()) &&
+                  !isNaN(actividadFin.getTime())
+                ) {
+                  tiempoTotalActividad = Math.max(
+                    0,
+                    Math.floor((actividadFin - actividadInicio) / 1000),
+                  );
+                }
+                let esperaActividadSeg = 0;
 
-                  tiempoTotalActividad += total;
-                });
+                const actCreated = act?.created_at
+                  ? new Date(act.created_at)
+                  : null;
+                const actInicio = act?.primer_inicio_at
+                  ? new Date(act.primer_inicio_at)
+                  : null;
 
+                if (
+                  actCreated &&
+                  actInicio &&
+                  !isNaN(actCreated.getTime()) &&
+                  !isNaN(actInicio.getTime())
+                ) {
+                  esperaActividadSeg = Math.max(
+                    0,
+                    Math.floor((actInicio - actCreated) / 1000),
+                  );
+                }
                 const claseEstadoAct =
                   obtenerClaseEstadoV2(act?.estado) || "estado-otros";
 
@@ -866,13 +979,20 @@ function renderizarTrabajosV2(data) {
                       </div>
                     </div>
 
-                    <div class="actividad-meta-v2">
-                      ${escapeHtmlV2(formatearEstadoV2(act?.estado || "—"))}
-                    </div>
+<div class="actividad-meta-v2">
+  ${escapeHtmlV2(formatearEstadoV2(act?.estado || "—"))}
+  ${
+    esperaActividadSeg > 0
+      ? `<div style="font-size:12px; color:#94a3b8; margin-top:2px;">
+           Espera: ${formatearDuracionV2(esperaActividadSeg)}
+         </div>`
+      : ""
+  }
+</div>
 
-                    <div class="actividad-personal-v2">
-                      ${nombresTecnicos.length > 0 ? escapeHtmlV2(nombresTecnicos.join(", ")) : "Sin técnicos"}
-                    </div>
+<div class="actividad-personal-v2">
+  ${detalleTecnicos.length > 0 ? detalleTecnicos.join("") : "Sin técnicos"}
+</div>
                   </div>
                 `;
               })
@@ -904,7 +1024,7 @@ function renderizarTrabajosV2(data) {
             </span>
 
             <div style="font-size:16px; font-weight:700; color:#0f172a;">
-              ${formatearDuracionV2(tiempoTotalTrabajo)}
+              ${formatearDuracionV2(tiempoTotalRealSeg)}
             </div>
 
             <div style="font-size:12px; color:#94a3b8;">
@@ -920,7 +1040,28 @@ function renderizarTrabajosV2(data) {
         <div style="margin-top:4px; font-size:14px; color:#475467;">
           Actividades: <strong>${acts.length}</strong> · Técnicos: <strong>${participantesUnicos.size}</strong>
         </div>
-
+        <div style="margin-top:6px; font-size:12px; color:#667085;">
+  ${
+    tiempoEsperaSeg > 0
+      ? `Espera: ${formatearDuracionV2(tiempoEsperaSeg)} · `
+      : ""
+  }
+  Trabajo-hombre: ${formatearDuracionV2(tiemposTrabajo.tiempoTrabajoSeg)}
+  ${
+    tiemposTrabajo.tiempoPausaHombreSeg > 0
+      ? ` · Pausa-hombre: ${formatearDuracionV2(tiemposTrabajo.tiempoPausaHombreSeg)}`
+      : ""
+  }
+</div>
+${
+  tiemposTrabajo.tiempoPausaHombreSeg > 0
+    ? `
+<div style="margin-top:8px; font-size:12px;">
+  <span class="fecha-chip">⏸ Pausa hombre: ${formatearDuracionV2(tiemposTrabajo.tiempoPausaHombreSeg)}</span>
+</div>
+`
+    : ""
+}
         ${
           expandido
             ? `
@@ -1267,15 +1408,20 @@ function escapeHtmlV2(texto) {
 }
 
 function formatearDuracionV2(segundos) {
-  const total = Math.max(0, Number(segundos || 0));
+  const total = Math.max(0, Math.floor(Number(segundos || 0)));
   const horas = Math.floor(total / 3600);
   const minutos = Math.floor((total % 3600) / 60);
+  const segs = total % 60;
 
   if (horas > 0) {
     return minutos > 0 ? `${horas}h ${minutos} min` : `${horas}h`;
   }
 
-  return `${minutos} min`;
+  if (minutos > 0) {
+    return segs > 0 ? `${minutos} min ${segs} seg` : `${minutos} min`;
+  }
+
+  return `${segs} seg`;
 }
 function formatearEstadoV2(estado) {
   const valor = String(estado || "").toLowerCase();

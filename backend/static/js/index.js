@@ -6774,8 +6774,9 @@ function pedirCerrarDia() {
   abrirModalConfirmacion({
     titulo: "Cierre de día",
     texto:
-      "Se eliminarán los trabajos pendientes. Los pausados quedarán para mañana y se reiniciarán los indicadores de almuerzo.",
-    destacado: "No se permitirá cerrar si aún existen trabajos en proceso.",
+      "Se eliminarán los trabajos pendientes del día y se reiniciarán los indicadores de almuerzo.",
+    destacado:
+      "No se permitirá cerrar si existen trabajos en proceso o pausados.",
     boton: "Cerrar día",
     claseBoton: "btn-danger",
     onConfirm: async () => {
@@ -6879,19 +6880,29 @@ async function iniciarAplicacion() {
 }
 async function cerrarDiaEjecutar() {
   try {
+    const hoy = obtenerFechaLocalISO();
+
     const [trabajosSnapshot, actividadesSnapshot, tecnicosSnapshot] =
       await Promise.all([
-        window.db.collection("trabajos").get(),
-        window.db.collection("actividades").where("activo", "==", true).get(),
+        window.db
+          .collection("trabajos")
+          .where("activo", "==", true)
+          .where("fecha_local", "==", hoy)
+          .get(),
+
+        window.db
+          .collection("actividades")
+          .where("activo", "==", true)
+          .where("fecha_local", "==", hoy)
+          .get(),
+
         window.db.collection("tecnicos").get(),
       ]);
 
-    const trabajos = trabajosSnapshot.docs
-      .map((doc) => ({
-        idDoc: doc.id,
-        ...doc.data(),
-      }))
-      .filter((t) => t.activo !== false);
+    const trabajos = trabajosSnapshot.docs.map((doc) => ({
+      idDoc: doc.id,
+      ...doc.data(),
+    }));
 
     const actividades = actividadesSnapshot.docs.map((doc) => ({
       idDoc: doc.id,
@@ -6929,19 +6940,19 @@ async function cerrarDiaEjecutar() {
       (t) => estadoVisualTrabajo(t) === "en_proceso",
     );
 
-    const pendientes = trabajosConActividades.filter(
-      (t) => estadoVisualTrabajo(t) === "pendiente",
-    );
-
     const pausados = trabajosConActividades.filter(
       (t) => estadoVisualTrabajo(t) === "pausado",
     );
 
-    if (enProceso.length > 0) {
+    const pendientes = trabajosConActividades.filter(
+      (t) => estadoVisualTrabajo(t) === "pendiente",
+    );
+
+    if (enProceso.length > 0 || pausados.length > 0) {
       abrirModalAviso({
         titulo: "No se puede cerrar el día",
         texto:
-          "Hay trabajos en proceso. Debes pausarlos o finalizarlos antes de continuar.",
+          "Hay trabajos en proceso o pausados. Debes finalizarlos o resolverlos antes de cerrar el día.",
         boton: "Entendido",
       });
       return;
@@ -6950,7 +6961,6 @@ async function cerrarDiaEjecutar() {
     const batch = window.db.batch();
     const ahora = new Date().toISOString();
 
-    // 1) Soft delete de trabajos pendientes + sus actividades
     pendientes.forEach((trabajo) => {
       const trabajoRef = window.db.collection("trabajos").doc(trabajo.idDoc);
 
@@ -6961,8 +6971,10 @@ async function cerrarDiaEjecutar() {
 
       const actividadesTrabajo =
         actividadesPorTrabajo.get(Number(trabajo.id)) || [];
+
       actividadesTrabajo.forEach((act) => {
         const actividadRef = window.db.collection("actividades").doc(act.idDoc);
+
         batch.update(actividadRef, {
           activo: false,
           eliminado_at: ahora,
@@ -6970,17 +6982,6 @@ async function cerrarDiaEjecutar() {
       });
     });
 
-    // 2) Marcar trabajos pausados como arrastrados
-    pausados.forEach((trabajo) => {
-      const trabajoRef = window.db.collection("trabajos").doc(trabajo.idDoc);
-
-      batch.update(trabajoRef, {
-        arrastrado: true,
-        arrastrado_desde: ahora,
-      });
-    });
-
-    // 3) Reiniciar técnicos para nuevo día
     tecnicosSnapshot.docs.forEach((doc) => {
       const data = doc.data() || {};
       const esEventual = (data.tipo || "fijo").toLowerCase() === "eventual";
@@ -6998,7 +6999,6 @@ async function cerrarDiaEjecutar() {
       });
     });
 
-    // 4) Guardar fecha de cierre
     const configRef = window.db.collection("config").doc("panel");
 
     batch.set(
@@ -7802,7 +7802,16 @@ async function activarParticipantePausadoEnActividadV2(
 
   const ahoraIso = new Date().toISOString();
   const participante = { ...participantes[participanteIndex] };
+  if (participante.pausa_actual_at) {
+    const pausaInicio = new Date(participante.pausa_actual_at);
+    if (!isNaN(pausaInicio.getTime())) {
+      const ahora = new Date();
+      const pausaSeg = Math.max(0, Math.floor((ahora - pausaInicio) / 1000));
 
+      participante.tiempo_pausa_seg =
+        Number(participante.tiempo_pausa_seg || 0) + pausaSeg;
+    }
+  }
   participante.estado = "activo";
   participante.activo = true;
   participante.visible_en_tarjeta = true;
